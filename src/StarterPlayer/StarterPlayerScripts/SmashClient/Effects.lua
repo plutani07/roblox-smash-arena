@@ -34,25 +34,28 @@ local SOUNDS = {
 	boom = "rbxasset://sounds/impact_explosion_03.mp3",
 	jump = "rbxasset://sounds/action_jump.mp3",
 	tick = "rbxasset://sounds/volume_slider.ogg",
-	swing = "rbxasset://sounds/action_swim.mp3",
+	-- the falling-wind loop, sped up and cut short, makes a decent attack whoosh
+	swing = "rbxasset://sounds/action_falling.ogg",
 }
 
-function Effects.Sound(name, volume, speed, at)
+-- maxLength cuts the sound off early (seconds), for turning long clips into short hits
+function Effects.Sound(name, volume, speed, at, maxLength)
 	local s = Instance.new("Sound")
 	s.SoundId = SOUNDS[name] or name
 	s.Volume = volume or 0.6
 	s.PlaybackSpeed = speed or 1
+	local holder = s
 	if at then
 		local att = Instance.new("Attachment")
 		att.WorldPosition = at
 		att.Parent = workspace.Terrain
 		s.Parent = att
 		s.RollOffMinDistance = 60
-		Debris:AddItem(att, 4)
+		holder = att
 	else
 		s.Parent = SoundService
-		Debris:AddItem(s, 4)
 	end
+	Debris:AddItem(holder, maxLength or 4)
 	s:Play()
 end
 
@@ -323,7 +326,7 @@ function Effects.OnMove(data)
 	local move = moves[data.key]
 	if not move then return end
 	if move.hits or move.projectile then
-		Effects.Sound("swing", 0.25, 2.2 + math.random() * 0.3, root.Position)
+		Effects.Sound("swing", 0.35, 2.6 + math.random() * 0.4, root.Position, 0.22)
 	end
 	if move.fx == "blink" then
 		burst(root.Position, def.Color, 25, 20, 1)
@@ -479,14 +482,14 @@ local function buildVisuals(model)
 	lbl.TextStrokeTransparency = 0.2
 	lbl.Text = isCPU and "CPU" or ("P" .. slot)
 	lbl.Parent = bb
-	local arrow = Instance.new("TextLabel")
-	arrow.Size = UDim2.new(1, 0, 0, 14)
-	arrow.Position = UDim2.fromOffset(0, 18)
-	arrow.BackgroundTransparency = 1
-	arrow.Font = Enum.Font.GothamBlack
-	arrow.TextSize = 14
-	arrow.TextColor3 = tagColor
-	arrow.Text = "▼"
+	-- little pointer under the tag (a rotated square, so it doesn't depend on font glyphs)
+	local arrow = Instance.new("Frame")
+	arrow.Size = UDim2.fromOffset(9, 9)
+	arrow.AnchorPoint = Vector2.new(0.5, 0.5)
+	arrow.Position = UDim2.new(0.5, 0, 0, 25)
+	arrow.Rotation = 45
+	arrow.BackgroundColor3 = tagColor
+	arrow.BorderSizePixel = 0
 	arrow.Parent = bb
 	v.tag = bb
 	visuals[model] = v

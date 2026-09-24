@@ -363,6 +363,203 @@ Poses.StancePeriod = { blaze = 0.9, frost = 1.6, titan = 2.2, volt = 0.6, nova =
 -- A fighter added later without its own taunt/stance uses these
 local FALLBACK = { taunt_ = "taunt", stance_ = "stance_blaze" }
 
+-- More movement / reaction states ----------------------------------------------------------------
+S.turn = { Root = { 10, 0, 0, 0, -0.4, 0 }, RS = { 20, 0, 50 }, LS = { 20, 0, -50 }, RH = { 30, 0, 0 }, RK = { -40, 0, 0 }, LH = { -20, 0, 0 } }
+S.skid = { Root = { 22, 0, 0, 0, -0.7, 0 }, RH = { 45, 0, 0 }, RK = { -20, 0, 0 }, LH = { 10, 0, 0 }, LK = { -60, 0, 0 }, RS = { 40, 0, 45 }, LS = { 40, 0, -45 } }
+S.takeoff = { RH = { -10, 0, 0 }, LH = { -22, 0, 0 }, LK = { -12, 0, 0 }, RS = { 150, 0, 20 }, LS = { 150, 0, -20 }, Root = { -8, 0, 0 } }
+S.dive = { RH = { -5, 0, 4 }, LH = { -5, 0, -4 }, RS = { 170, 0, 15 }, LS = { 170, 0, -15 }, Neck = { 20, 0, 0 } }
+S.release = { Root = { 18, 0, 0 }, RS = { -20, 0, 40 }, LS = { -20, 0, -40 }, RH = { 25, 0, 0 }, LH = { -15, 0, 0 } }
+S.knockdown = { Root = { 82, 0, 0, 0, -1.7, 0 }, RS = { 20, 0, 70 }, LS = { 20, 0, -70 }, RH = { 10, 0, 8 }, LH = { 15, 0, -8 }, RK = { -10, 0, 0 }, LK = { -25, 0, 0 }, Neck = { -20, 0, 0 } }
+
+S.flinchBack = { Waist = { -25, 0, 0 }, Neck = { -20, 0, 0 }, RS = { 40, 0, 35 }, LS = { 40, 0, -35 }, RH = { -10, 0, 0 }, LH = { 15, 0, 0 } }
+
+-- sliding flying kick out of a run
+A.dashattack = {
+	{ 0, { Root = { -25, 0, 0 }, RS = { -40, 0, 20 }, LS = { -40, 0, -20 }, RH = { 40, 0, 0 }, RK = { -60, 0, 0 } } },
+	{ 0.15, { Root = { 22, 0, 0, 0, -0.9, 0 }, RH = { 88, 0, 0 }, RK = { 0, 0, 0 }, LH = { -15, 0, 0 }, LK = { -100, 0, 0 }, RS = { -30, 0, 50 }, LS = { -30, 0, -50 } } },
+	{ 0.6, { Root = { 18, 0, 0, 0, -0.8, 0 }, RH = { 80, 0, 0 }, RK = { -5, 0, 0 }, LH = { -10, 0, 0 }, LK = { -95, 0, 0 }, RS = { -25, 0, 50 }, LS = { -25, 0, -50 } } },
+	{ 1, {} },
+}
+
+-- getting back up after being knocked flat
+A.getup = {
+	{ 0, S.knockdown },
+	{ 0.45, merge(crouch, { Root = { 10, 0, 0, 0, -1.0, 0 }, RS = { 30, 0, 30 }, LS = { 30, 0, -30 } }) },
+	{ 1, {} },
+}
+-- pulling up from the ledge onto the stage
+A.ledgeclimb = {
+	{ 0, S.ledge },
+	{ 0.4, { RS = { 120, 0, 20 }, LS = { 120, 0, -20 }, RH = { 100, 0, 0 }, RK = { -110, 0, 0 }, LH = { 20, 0, 0 }, LK = { -40, 0, 0 }, Root = { -25, 0, 0, 0, -0.6, 0 } } },
+	{ 0.75, merge(crouch, { RS = { 30, 0, 25 }, LS = { 30, 0, -25 } }) },
+	{ 1, {} },
+}
+-- double-jump styles
+A.backflip = {
+	{ 0, { RH = { 60, 0, 0 }, RK = { -100, 0, 0 }, LH = { 60, 0, 0 }, LK = { -100, 0, 0 } } },
+	{ 0.5, { Root = { 200, 0, 0 }, RH = { 100, 0, 0 }, RK = { -130, 0, 0 }, LH = { 100, 0, 0 }, LK = { -130, 0, 0 }, RS = { 40, 0, 30 }, LS = { 40, 0, -30 } } },
+	{ 1, { Root = { 360, 0, 0 }, RH = { 30, 0, 4 }, RK = { -50, 0, 0 }, LH = { 10, 0, -4 }, LK = { -30, 0, 0 } } },
+}
+A.tuck = {
+	{ 0, {} },
+	{ 0.4, { RH = { 95, 0, 0 }, RK = { -120, 0, 0 }, LH = { 95, 0, 0 }, LK = { -120, 0, 0 }, RS = { 60, 0, -20 }, LS = { 60, 0, 20 }, RE = { 80, 0, 0 }, LE = { 80, 0, 0 }, Root = { -10, 0, 0 } } },
+	{ 1, { RH = { 30, 0, 4 }, RK = { -50, 0, 0 }, LH = { 10, 0, -4 }, LK = { -30, 0, 0 } } },
+}
+A.doubleflip = {
+	{ 0, { RH = { 90, 0, 0 }, RK = { -120, 0, 0 }, LH = { 90, 0, 0 }, LK = { -120, 0, 0 }, RS = { 70, 0, 0 }, LS = { 70, 0, 0 } } },
+	{ 0.85, { Root = { -700, 0, 0 }, RH = { 95, 0, 0 }, RK = { -125, 0, 0 }, LH = { 95, 0, 0 }, LK = { -125, 0, 0 }, RS = { 70, 0, 0 }, LS = { 70, 0, 0 } } },
+	{ 1, { Root = { -720, 0, 0 } } },
+}
+A.twirl = {
+	{ 0, { RS = { 0, 0, 80 }, LS = { 0, 0, -80 } } },
+	{ 0.8, { Root = { 0, 340, 0, 0, 0.3, 0 }, RS = { 20, 0, 85 }, LS = { 20, 0, -85 }, RH = { 5, 0, 3 }, LH = { 5, 0, -3 }, RK = { -20, 0, 0 } } },
+	{ 1, { Root = { 0, 360, 0 } } },
+}
+-- losers applaud the winner on the results screen (looped)
+A.clap = {
+	{ 0, { RS = { 72, 0, -22 }, RE = { 45, 0, 0 }, LS = { 72, 0, 22 }, LE = { 45, 0, 0 }, Neck = { 8, 0, 0 } } },
+	{ 0.5, { RS = { 72, 0, 8 }, RE = { 60, 0, 0 }, LS = { 72, 0, -8 }, LE = { 60, 0, 0 }, Neck = { 8, 0, 0 } } },
+	{ 1, { RS = { 72, 0, -22 }, RE = { 45, 0, 0 }, LS = { 72, 0, 22 }, LE = { 45, 0, 0 }, Neck = { 8, 0, 0 } } },
+}
+-- idle fidgets
+A.fidget_look = {
+	{ 0, {} },
+	{ 0.25, { Neck = { 5, 55, 0 }, Waist = { 0, 15, 0 } } },
+	{ 0.45, { Neck = { 5, 55, 0 }, Waist = { 0, 15, 0 } } },
+	{ 0.7, { Neck = { 5, -55, 0 }, Waist = { 0, -15, 0 } } },
+	{ 0.85, { Neck = { 5, -55, 0 }, Waist = { 0, -15, 0 } } },
+	{ 1, {} },
+}
+A.fidget_shake = {
+	{ 0, {} },
+	{ 0.15, { RS = { 10, 0, 30 }, LS = { 10, 0, -30 }, Root = { 0, 0, 0, 0, 0.15, 0 } } },
+	{ 0.3, { RS = { 10, 0, 5 }, LS = { 10, 0, -5 }, Root = { 0, 0, 0, 0, -0.1, 0 } } },
+	{ 0.45, { RS = { 10, 0, 30 }, LS = { 10, 0, -30 }, Root = { 0, 0, 0, 0, 0.15, 0 } } },
+	{ 0.6, { RS = { 10, 0, 5 }, LS = { 10, 0, -5 }, Root = { 0, 0, 0, 0, -0.1, 0 } } },
+	{ 0.8, { Neck = { 0, 0, 20 }, Waist = { 0, 0, -8 } } },
+	{ 1, {} },
+}
+A.fidget_stretch = {
+	{ 0, {} },
+	{ 0.35, { RS = { 175, 0, 12 }, LS = { 175, 0, -12 }, RE = { 0, 0, 0 }, LE = { 0, 0, 0 }, Root = { 12, 0, 0, 0, 0.2, 0 }, Neck = { 25, 0, 0 } } },
+	{ 0.7, { RS = { 170, 0, 22 }, LS = { 170, 0, -22 }, Root = { 10, 0, 0, 0, 0.2, 0 }, Waist = { 0, 0, 10 }, Neck = { 20, 0, 0 } } },
+	{ 1, {} },
+}
+Poses.Fidgets = { "fidget_look", "fidget_shake", "fidget_stretch" }
+
+-- which double-jump each fighter does, and how long it lasts
+Poses.AirJump = {
+	blaze = { "flip", 0.34 }, frost = { "backflip", 0.36 }, titan = { "tuck", 0.4 },
+	volt = { "doubleflip", 0.42 }, nova = { "twirl", 0.45 },
+}
+
+-- Procedural poses -------------------------------------------------------------------------------
+local TAU = math.pi * 2
+
+-- Each fighter runs differently: leg / arm swing (deg), knee bend, elbow bend, forward lean,
+-- bounce (studs), torso twist and stride length (studs per full cycle)
+Poses.RunStyles = {
+	blaze = { stride = 9, leg = 50, knee = 75, arm = 55, elbow = 85, lean = 14, bob = 0.35, twist = 12 },
+	frost = { stride = 10, leg = 58, knee = 85, arm = 0, elbow = 20, lean = 30, bob = 0.25, twist = 4, armsBack = true },
+	titan = { stride = 8, leg = 38, knee = 55, arm = 35, elbow = 60, lean = 8, bob = 0.55, twist = 16 },
+	volt = { stride = 11, leg = 62, knee = 95, arm = 70, elbow = 95, lean = 24, bob = 0.3, twist = 10 },
+	nova = { stride = 12, hover = true, lean = 18, bob = 0.25 },
+}
+
+-- phase: 0..1 through one stride, amount: 0 (standing) .. 1 (full sprint)
+function Poses.Run(style, phase, amount)
+	style = style or Poses.RunStyles.blaze
+	local s = math.sin(phase * TAU)
+	local pose = {}
+	if style.hover then
+		-- glides: legs trail together, arms swept back, gentle float
+		local float = 0.35 + math.sin(phase * TAU) * style.bob
+		pose.RH = { -15 * amount, 0, 4 }
+		pose.LH = { -25 * amount, 0, -4 }
+		pose.RK = { -35 * amount, 0, 0 }
+		pose.LK = { -45 * amount, 0, 0 }
+		pose.RS = { -40 * amount, 0, 25 }
+		pose.LS = { -40 * amount, 0, -25 }
+		pose.Root = { -style.lean * amount, 0, 0, 0, float, 0 }
+		return pose
+	end
+	local leg = style.leg * amount
+	pose.RH = { s * leg, 0, 3 }
+	pose.LH = { -s * leg, 0, -3 }
+	-- the knee bends on the back swing
+	pose.RK = { -(math.max(0, -s) * style.knee + 12) * amount, 0, 0 }
+	pose.LK = { -(math.max(0, s) * style.knee + 12) * amount, 0, 0 }
+	if style.armsBack then
+		pose.RS = { -75 * amount, 0, 12 }
+		pose.LS = { -75 * amount, 0, -12 }
+	else
+		pose.RS = { -s * style.arm * amount, 0, 8 }
+		pose.LS = { s * style.arm * amount, 0, -8 }
+	end
+	pose.RE = { style.elbow * amount, 0, 0 }
+	pose.LE = { style.elbow * amount, 0, 0 }
+	local bob = (0.5 - 0.5 * math.cos(phase * TAU * 2)) * style.bob * amount
+	pose.Root = { -style.lean * amount, 0, 0, 0, -bob, 0 }
+	pose.Waist = { 0, -s * style.twist * amount, 0 }
+	pose.Neck = { style.lean * 0.4 * amount, 0, 0 }
+	return pose
+end
+
+-- wobbly and seeing stars after a shield break
+function Poses.Dizzy(t)
+	local a = t * 5
+	return {
+		Root = { math.sin(a) * 6, 0, math.cos(a) * 8, 0, -0.3, 0 },
+		Waist = { -15 + math.sin(a * 1.3) * 5, 0, math.cos(a) * 6 },
+		Neck = { -10, math.sin(a) * 25, math.cos(a) * 15 },
+		RS = { 10, 0, 15 + math.sin(a) * 10 }, LS = { 10, 0, -15 - math.sin(a) * 10 },
+		RE = { 20, 0, 0 }, LE = { 20, 0, 0 },
+		RH = { 10, 0, 6 }, LH = { 10, 0, -6 }, RK = { -20, 0, 0 }, LK = { -20, 0, 0 },
+	}
+end
+
+-- arms flailing on the very edge of the stage
+function Poses.Teeter(t)
+	local a = t * 9
+	return {
+		Root = { -18 + math.sin(a) * 6, 0, 0 },
+		RS = { 90 + math.sin(a) * 60, 0, 60 }, LS = { 90 - math.sin(a) * 60, 0, -60 },
+		RE = { 10, 0, 0 }, LE = { 10, 0, 0 },
+		RH = { -10, 0, 0 }, LH = { 25 + math.sin(a) * 10, 0, 0 }, LK = { -30, 0, 0 },
+		Neck = { -20, 0, 0 },
+	}
+end
+
+-- hanging from the ledge, legs swaying
+function Poses.LedgeHang(t)
+	local p = table.clone(S.ledge)
+	local a = t * 2.2
+	p.RH = { 15 + math.sin(a) * 12, 0, 5 }
+	p.LH = { -5 - math.sin(a) * 12, 0, -5 }
+	p.RK = { -15 - math.max(0, math.sin(a)) * 20, 0, 0 }
+	return p
+end
+
+-- waiting on the revival platform, bobbing gently
+function Poses.Revive(t)
+	local p = table.clone(S.revive)
+	p.Root = { 0, 0, 0, 0, math.sin(t * 2.5) * 0.25, 0 }
+	p.Neck = { 10, 0, 0 }
+	return p
+end
+
+-- {rx, ry, rz, px, py, pz} (degrees / studs) -> Motor6D.Transform
+function Poses.ToCFrame(v, scale, joint)
+	local rot = CFrame.Angles(math.rad(v[1]), math.rad(v[2]), math.rad(v[3]))
+	local pos = Vector3.new(v[4] or 0, v[5] or 0, v[6] or 0) * scale
+	if joint == "Root" then
+		-- spin around the middle of the body instead of the hips
+		local h = 0.9 * scale
+		return CFrame.new(pos) * CFrame.new(0, h, 0) * rot * CFrame.new(0, -h, 0)
+	end
+	return CFrame.new(pos) * rot
+end
+
 Poses.Anims = A
 
 -- Where the pose freezes while a move is being charged

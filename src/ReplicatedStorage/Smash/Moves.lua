@@ -91,6 +91,12 @@ local Normals = {
 		anim = "dair", dur = 0.56, air = true, landLag = 0.2, trail = { "RightFoot", "LeftFoot" },
 		hits = { { t = { 0.16, 0.24 }, off = V2(0, -2.8), size = V2(3.6, 3.4), dmg = 13, ang = 275, bkb = 22, kbg = 0.9, hitlagMult = 1.3 } },
 	},
+	-- attacking out of a full run: a sliding flying kick that carries your momentum
+	dashattack = {
+		anim = "dashattack", dur = 0.5, trail = { "RightFoot" },
+		motion = { { t = 0, dur = 0.28, vx = 34 } },
+		hits = { { t = { 0.07, 0.28 }, off = V2(2.2, -0.3), size = V2(4.2, 3.6), dmg = 9, ang = 60, bkb = 32, kbg = 0.7 } },
+	},
 	ledgeattack = {
 		anim = "ftilt", dur = 0.45, trail = { "RightFoot" },
 		hits = { { t = { 0.12, 0.22 }, off = V2(2.4, 0), size = V2(4.6, 3), dmg = 8, ang = 45, bkb = 32, kbg = 0.4 } },

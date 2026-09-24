@@ -98,6 +98,16 @@ Action:FireServer("LoadControls")
 local controller = nil
 local myId = nil
 
+-- movement flourishes that come from the controller (ours) or the server (everyone else's)
+local function playFx(model, kind)
+	if not model then return end
+	if kind == "airjump" then
+		Animator.OnAirJump(model)
+	elseif kind == "climb" then
+		Animator.PlayAnim(model, "ledgeclimb", 0.24)
+	end
+end
+
 local function setupCharacter(char)
 	if controller then
 		controller:Destroy()
@@ -136,7 +146,7 @@ local function setupCharacter(char)
 			leaveRevival = function() Action:FireServer("LeaveRevival") end,
 			fx = function(kind)
 				Action:FireServer("Fx", kind)
-				if kind == "airjump" then Animator.OnAirJump(char) end
+				playFx(char, kind)
 			end,
 			pummel = function() Action:FireServer("Pummel") end,
 			throw = function(dir) Action:FireServer("Throw", dir) end,
@@ -207,7 +217,7 @@ Event.OnClientEvent:Connect(function(kind, data)
 		end
 	elseif kind == "ShieldBreak" then
 		Effects.OnShieldBreak(data)
-		Animator.OnStun(data.id, data.hitstun)
+		Animator.OnStun(data.id, data.hitstun, true)
 		if controller and data.id == myId then
 			controller:ApplyHit({ vel = Vector2.new(data.vx, data.vy), hitstun = data.hitstun, hitlag = data.hitlag })
 		end
@@ -230,9 +240,8 @@ Event.OnClientEvent:Connect(function(kind, data)
 		Effects.OnShockwave(data)
 	elseif kind == "Fx" then
 		Effects.OnFx(data)
-		if data.kind == "airjump" and data.id ~= myId then
-			local model = Animator.ModelFor(data.id)
-			if model then Animator.OnAirJump(model) end
+		if data.id ~= myId then
+			playFx(Animator.ModelFor(data.id), data.kind)
 		end
 	elseif kind == "Grab" then
 		Effects.OnGrab(data)
@@ -244,6 +253,7 @@ Event.OnClientEvent:Connect(function(kind, data)
 			end
 		end
 	elseif kind == "GrabEnd" then
+		Animator.OnGrabRelease(data)
 		if controller then
 			if data.v == myId then controller:ExitGrabbed(data.push) end
 			if data.a == myId then controller:ExitHold(data.apush) end

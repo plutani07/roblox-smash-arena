@@ -151,7 +151,8 @@ function Looks.Apply(model, def)
 	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
 end
 
--- A posed, anchored copy for the character select screen
+-- A copy for the character select screen. Only the root is anchored so the menu can pose the
+-- joints (it animates the fighter's stance and plays their taunt when picked).
 function Looks.BuildPreview(def)
 	local Players = game:GetService("Players")
 	local ok, model = pcall(function()
@@ -168,9 +169,7 @@ function Looks.BuildPreview(def)
 	model.Parent = workspace -- scaling only runs while parented to the world
 	Looks.Apply(model, def)
 	for _, d in ipairs(model:GetDescendants()) do
-		if d:IsA("BasePart") then
-			d.Anchored = true
-		elseif d:IsA("Script") or d:IsA("LocalScript") then
+		if d:IsA("Script") or d:IsA("LocalScript") then
 			d:Destroy()
 		end
 	end

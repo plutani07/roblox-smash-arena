@@ -82,6 +82,7 @@ function Controller:Reset()
 	self.grabbedBy = nil
 	if self.crouching and self.hooks.crouch then self.hooks.crouch(false) end
 	self.crouching = false
+	self.climbing = nil
 	if self.root then
 		self.root.AssemblyLinearVelocity = Vector3.zero
 	end
@@ -270,6 +271,7 @@ function Controller:ApplyHit(info)
 	self.dodge = nil
 	self.holding = nil
 	self.grabbedBy = nil
+	self.climbing = nil
 	self.landLag = 0
 	self.helpless = false
 	self.fastFalling = false
@@ -297,6 +299,7 @@ end
 -- Grabs -----------------------------------------------------------------------------------------
 
 local function clearForGrab(self)
+	self.climbing = nil
 	if self.ledge then
 		self.ledge = nil
 		self.ledgeCooldown = Config.LedgeRegrabCooldown
@@ -489,6 +492,13 @@ function Controller:_tryPress(button, input)
 	local dir = self:_dirName(input)
 	local forward = sign(input.x) == self.facing
 	local key = Moves.Resolve(button, dir, self.grounded, forward)
+	-- attacking out of a full sprint becomes a dash attack instead of stopping dead
+	if button == "attack" and self.grounded and (dir == "side" or dir == "neutral") then
+		local vx = self.root.AssemblyLinearVelocity.X
+		if math.abs(vx) > self.stats.RunSpeed * 0.75 and sign(vx) == self.facing and (dir == "neutral" or forward) then
+			key = "dashattack"
+		end
+	end
 	if not self:_canUse(key) then return false end
 	-- ground moves and side specials turn toward the stick
 	if dir == "side" and (self.grounded or button == "special") then
@@ -612,7 +622,12 @@ function Controller:_updateAction(dt, input)
 	-- jab combos
 	if move.combo then
 		local pressed = input.attackPressed and self:_dirName(input) == "neutral"
-		if pressed then a.comboQueued = true end
+		if pressed then
+			a.comboQueued = true
+		else
+			-- a tilt/special pressed during the jab comes out right after it
+			self:_recordPress(input)
+		end
 		if a.comboQueued and a.t >= move.combo.from then
 			self.action = nil
 			self:_startAction(move.combo.next, 0)
@@ -737,14 +752,16 @@ function Controller:_updateLedge(dt, input)
 	self:_gravity(0)
 	if L.t < 0.18 then return end
 	local inward = -L.side
-	local function climb()
+	local function climb(attack)
 		self:_releaseLedge()
-		root.CFrame = CFrame.lookAt(
-			Vector3.new(L.x + inward * 2.2 * s, stage.Top + 3.2 * s, stage.Z),
-			Vector3.new(L.x + inward * 3.2 * s, stage.Top + 3.2 * s, stage.Z)
-		)
-		root.AssemblyLinearVelocity = Vector3.zero
-		self.grounded = true
+		self.climbing = {
+			t = 0,
+			from = root.Position,
+			to = Vector3.new(L.x + inward * 2.2 * s, stage.Top + 3.2 * s, stage.Z),
+			inward = inward,
+			attack = attack,
+		}
+		if self.hooks.fx then self.hooks.fx("climb") end
 	end
 	if input.jumpPressed then
 		self:_releaseLedge()
@@ -752,14 +769,39 @@ function Controller:_updateLedge(dt, input)
 		root.AssemblyLinearVelocity = Vector3.new(inward * 10, vy, 0)
 		self.humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
 		self.jumpHeld = true
+		if self.hooks.fx then self.hooks.fx("airjump") end
 	elseif input.attackPressed or input.smashPressed then
-		climb()
-		self:_startAction("ledgeattack", 0)
+		climb(true)
 	elseif input.upPressed or (input.xPressed ~= 0 and input.xPressed == inward) then
-		climb()
+		climb(false)
 	elseif input.downPressed or (input.xPressed ~= 0 and input.xPressed == -inward) or L.t > Config.LedgeMaxHang then
 		self:_releaseLedge()
 		root.AssemblyLinearVelocity = Vector3.new(-inward * 4, -10, 0)
+	end
+end
+
+-- Pulling up over the ledge: rise above the edge first, then step onto the stage
+local CLIMB_TIME = 0.24
+function Controller:_updateClimb(dt)
+	local c = self.climbing
+	c.t += dt
+	local a = math.clamp(c.t / CLIMB_TIME, 0, 1)
+	local up = math.clamp(a / 0.6, 0, 1)
+	local over = math.clamp((a - 0.4) / 0.6, 0, 1)
+	local pos = Vector3.new(
+		c.from.X + (c.to.X - c.from.X) * (over * over * (3 - 2 * over)),
+		c.from.Y + (c.to.Y - c.from.Y) * (1 - (1 - up) * (1 - up)),
+		c.to.Z
+	)
+	self.root.CFrame = CFrame.lookAt(pos, pos + Vector3.new(c.inward, 0, 0))
+	self.root.AssemblyLinearVelocity = Vector3.zero
+	self.humanoid.WalkSpeed = 0
+	self.humanoid:Move(Vector3.zero, false)
+	self:_gravity(0)
+	if a >= 1 then
+		self.climbing = nil
+		self.grounded = true
+		if c.attack then self:_startAction("ledgeattack", 0) end
 	end
 end
 
@@ -813,7 +855,7 @@ function Controller:Step(dt, input)
 	end
 
 	-- crouch whenever we're standing free and holding down
-	local free = grounded and not self.action and not self.charging and not self.dodge and not self.ledge
+	local free = grounded and not self.action and not self.charging and not self.dodge and not self.ledge and not self.climbing
 		and self.hitstun <= 0 and not self.holding and not self.grabbedBy and self.landLag <= 0 and not input.shieldHeld
 	self:_setCrouch(free and input.down and math.abs(input.x) < 0.3)
 
@@ -857,6 +899,11 @@ function Controller:Step(dt, input)
 		self.pushVX = nil
 	end
 
+	if self.climbing then
+		self:_updateClimb(dt)
+		self:_recordPress(input)
+		return
+	end
 	if self.ledge then
 		self:_updateLedge(dt, input)
 		self:_planeLock()

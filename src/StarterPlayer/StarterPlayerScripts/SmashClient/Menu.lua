@@ -8,6 +8,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Smash = ReplicatedStorage:WaitForChild("Smash")
 local Fighters = require(Smash.Fighters)
 local Config = require(Smash.Config)
+local Poses = require(Smash.Poses)
+local Moves = require(Smash.Moves)
 
 local Menu = {}
 Menu.OnSelect = nil
@@ -24,6 +26,7 @@ local chosenIndex = 1
 local state
 local stickHeld, stickNext = nil, 0
 local openedAt = 0
+local tauntStarted = {} -- fighter key -> when their preview started its taunt
 
 local DARK = Color3.fromRGB(16, 16, 24)
 
@@ -74,6 +77,9 @@ end
 -- Character select --------------------------------------------------------------------------
 
 local function showDetail(def)
+	if chosenKey ~= def.Key or not tauntStarted[def.Key] then
+		tauntStarted[def.Key] = os.clock() -- the picked fighter shows off
+	end
 	chosenKey = def.Key
 	chosenIndex = def.Index or table.find(Fighters.List, def) or 1
 	detail.name.Text = def.Name
@@ -144,7 +150,21 @@ local function buildViewport(parent, def)
 		local m = src:Clone()
 		local cf, size = m:GetBoundingBox()
 		m:PivotTo(m:GetPivot() - cf.Position) -- center the fighter on the origin
-		m.Parent = vp
+		-- a WorldModel lets the joints move, so the preview can animate
+		local world = Instance.new("WorldModel")
+		world.Parent = vp
+		m.Parent = world
+		local joints = {}
+		for joint, info in pairs(Poses.Joints) do
+			local part = m:FindFirstChild(info[1])
+			local motor = part and part:FindFirstChild(info[2])
+			if motor and motor:IsA("Motor6D") then joints[joint] = motor end
+		end
+		local lower = string.lower(def.Key)
+		local stance = "stance_" .. lower
+		local period = Poses.StancePeriod[lower] or 1.2
+		local taunt = Moves.Get(def.Key).taunt
+		local scale = def.Scale or 1
 		local h = size.Y
 		local look = Vector3.zero
 		local angle = 0
@@ -155,6 +175,18 @@ local function buildViewport(parent, def)
 			angle += dt * 0.6
 			local d = h * 1.9
 			cam.CFrame = CFrame.lookAt(look + Vector3.new(math.sin(angle) * d, h * 0.1, -math.cos(angle) * d), look)
+			local now = os.clock()
+			local started = tauntStarted[def.Key]
+			local pose
+			if started and now - started < taunt.dur then
+				pose = Poses.Sample(taunt.anim, (now - started) / taunt.dur)
+			else
+				pose = Poses.Sample(stance, (now % period) / period)
+			end
+			for joint, motor in pairs(joints) do
+				local v = pose and pose[joint]
+				motor.Transform = v and Poses.ToCFrame(v, scale, joint) or CFrame.identity
+			end
 		end)
 	end)
 	return vp

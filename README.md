@@ -32,11 +32,16 @@ Open **`place/RobloxSmashGames_Smash.rbxl`** in Roblox Studio and press **Play**
   - If you're grabbed, mash any button to break out sooner. The more damage you have, the longer you're held.
 - **Crouching.** Hold down to crouch. It makes you shorter, so some high attacks miss you.
 - **Procedural animation.** No animation assets are needed:
-  - every fighter has their own idle fighting stance, taunt and victory pose
-  - double jumps do a front flip
-  - jumping, falling, landing and crouching poses
-  - grab, pummel, throw and "being held" animations
+  - each fighter has their own run (Frost does a ninja run, Titan stomps, Nova glides), idle fighting stance, double-jump style, taunt and victory pose
+  - movement: turnarounds, skidding to a stop, jump takeoff, rising, falling, fast-fall dive, landing squash, crouch, and teetering and flailing at the edge of the stage
+  - ledges: hanging with swaying legs, and a real climb up onto the stage
+  - getting hit: flinches that react to which side the hit came from, tumbling, being knocked flat and getting back up, and a dizzy wobble after a shield break
+  - idle fidgets, heads that look toward the nearest opponent, and a bobbing pose on the revival platform
+  - grab, pummel, four throws, being held, and being pushed away when a grab ends
+  - on the results screen, the winner does their victory pose and everyone else claps
+  - on the character select screen, each fighter holds their stance and taunts when you pick them
   - every pose blends smoothly into the next
+- **Dash attack.** Attacking out of a full run does a sliding kick instead of stopping dead.
 - **CPU opponents.** Three difficulty levels, plus a training dummy in free play. CPUs approach, attack, shield, dodge, grab and throw, mash out of grabs, edge-guard, and recover with jumps and up-specials.
 - **2.5D camera.** It frames every fighter and zooms as they spread out.
 - **Smash-style HUD.** Damage cards change color with percent, and stock icons show remaining lives.

@@ -115,7 +115,6 @@ function Brain:Think(dt)
 		self.moveX = 0
 		input.x = 0
 		local h = c.holding
-		if h.t < 0.25 + math.random() * 0.2 then return input end
 		if not self.throwPlan then
 			local victim = f.holding
 			local facing = c.facing
@@ -131,9 +130,14 @@ function Brain:Think(dt)
 			else
 				plan = ({ "f", "d", "u", "b" })[math.random(1, 4)]
 			end
-			self.throwPlan = { dir = plan, pummels = self.level >= 2 and math.random(0, 2) or 0 }
+			self.throwPlan = {
+				dir = plan,
+				pummels = self.level >= 2 and math.random(0, 2) or 0,
+				delay = 0.25 + math.random() * 0.25, -- decided once per grab
+			}
 		end
 		local plan = self.throwPlan
+		if h.t < plan.delay then return input end
 		if plan.pummels > 0 then
 			if h.t >= h.nextPummel then
 				input.attackPressed = true

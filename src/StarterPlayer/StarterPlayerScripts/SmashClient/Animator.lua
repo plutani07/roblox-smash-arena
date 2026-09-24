@@ -1,7 +1,10 @@
 -- Plays the procedural Poses on every fighter (runs on each client, after the default animations).
--- Layers, highest priority first: victory, grabbed, ledge, hitstun, attacks, charging, dodges, holding,
--- shield, helpless, revival, then movement (landing squash, double-jump flip, rise/fall, crouch and
--- each fighter's idle fighting stance). Switching between any two poses blends smoothly.
+-- Layers, highest priority first:
+--   results (winner's victory pose, everyone else claps), grabbed, ledge, hitstun (flinch, tumble,
+--   knockdown, dizzy), attacks / one-shot anims, charging, dodges, holding, grab release, shield,
+--   helpless, revival, then movement: landing, double-jump flips, takeoff, fast-fall dive, rise/fall,
+--   turnaround, skid, crouch, each fighter's run style, teetering on the edge, idle fidgets and stance.
+-- Switching between any two poses blends smoothly.
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -26,6 +29,11 @@ rayParams.FilterType = Enum.RaycastFilterType.Include
 rayParams.RespectCanCollide = false
 
 local function clock() return os.clock() end
+
+local function sign(x)
+	if x > 0 then return 1 elseif x < 0 then return -1 end
+	return 0
+end
 
 local function makeTrails(model, def)
 	local trails = {}
@@ -64,6 +72,7 @@ local function track(model)
 	if not key then return end
 	local def = Fighters.Get(key)
 	local lower = string.lower(def.Key)
+	local airJump = Poses.AirJump[lower] or Poses.AirJump.blaze
 	local rec = {
 		model = model,
 		def = def,
@@ -71,20 +80,35 @@ local function track(model)
 		scale = def.Scale or 1,
 		stance = "stance_" .. lower,
 		stancePeriod = Poses.StancePeriod[lower] or 1.2,
+		runStyle = Poses.RunStyles[lower] or Poses.RunStyles.blaze,
+		flipAnim = airJump[1],
+		flipDur = airJump[2],
 		humanoid = model:FindFirstChildOfClass("Humanoid"),
 		root = model:FindFirstChild("HumanoidRootPart"),
 		joints = {},
 		trails = makeTrails(model, def),
-		anim = nil,       -- { move, start, paused, pauseUntil }
+		anim = nil,         -- { move, start, paused, pauseUntil }
 		hitstunUntil = 0,
-		tumble = false,
 		hitlagUntil = 0,
-		dodge = nil,      -- { kind, start, dur }
-		charging = nil,   -- { key, start }
+		tumble = false,
+		dizzyUntil = 0,
+		knockedDown = false,
+		dodge = nil,        -- { kind, start, dur }
+		charging = nil,     -- { key, start }
 		flipStart = -10,
 		landUntil = 0,
+		takeoffUntil = 0,
+		turnUntil = 0,
+		skidUntil = 0,
+		releaseUntil = 0,
 		wasGrounded = true,
 		prevVy = 0,
+		prevSpeed = 0,
+		facing = 1,
+		runPhase = 0,
+		idleSince = clock(),
+		nextFidget = 5 + math.random() * 5,
+		fidget = nil,
 		src = nil,
 		from = {},
 		out = {},
@@ -137,10 +161,19 @@ function Animator.PlayMove(model, key)
 	if not move then return end
 	rec.anim = { move = move, start = clock(), paused = 0, pauseUntil = 0 }
 	rec.charging = nil
+	rec.fidget = nil
 	for _, tr in pairs(rec.trails) do tr.Enabled = false end
 	for _, limb in ipairs(move.trail or {}) do
 		if rec.trails[limb] then rec.trails[limb].Enabled = true end
 	end
+end
+
+-- One-shot animation that isn't an attack (ledge climb, get-up...)
+function Animator.PlayAnim(model, anim, dur)
+	local rec = records[model]
+	if not rec then return end
+	rec.anim = { move = { key = anim, anim = anim, dur = dur }, start = clock(), paused = 0, pauseUntil = 0 }
+	rec.fidget = nil
 end
 
 function Animator.OnMove(data)
@@ -199,6 +232,14 @@ function Animator.OnHit(data)
 		vrec.anim = nil
 		vrec.charging = nil
 		vrec.dodge = nil
+		vrec.fidget = nil
+		vrec.knockedDown = false
+		-- hit from behind = lurch forward instead of back
+		vrec.hitFromBehind = false
+		if arec and arec.root and vrec.root then
+			local victimFacing = vrec.root.CFrame.LookVector.X >= 0 and 1 or -1
+			vrec.hitFromBehind = sign(arec.root.Position.X - vrec.root.Position.X) == -victimFacing
+		end
 		vrec.hitlagUntil = clock() + lag
 		vrec.hitstunUntil = clock() + lag + (data.hitstun or 0)
 		vrec.tumble = data.tumble
@@ -220,12 +261,22 @@ function Animator.OnCounter(data)
 	rec.anim = { move = { key = "counterhit", anim = "counterhit", dur = 0.4 }, start = clock(), paused = 0, pauseUntil = 0 }
 end
 
-function Animator.OnStun(id, sec)
+-- dizzy = shield break (wobbly), otherwise a short stun (parried)
+function Animator.OnStun(id, sec, dizzy)
 	local rec = recFor(id)
 	if rec then
 		rec.anim = nil
 		rec.hitstunUntil = clock() + sec
 		rec.tumble = false
+		if dizzy then rec.dizzyUntil = clock() + sec end
+	end
+end
+
+function Animator.OnGrabRelease(data)
+	if data.reason == "throw" then return end
+	for _, id in ipairs({ data.a, data.v }) do
+		local rec = recFor(id)
+		if rec then rec.releaseUntil = clock() + 0.22 end
 	end
 end
 
@@ -237,27 +288,20 @@ function Animator.Reset(id)
 		rec.dodge = nil
 		rec.hitstunUntil = 0
 		rec.hitlagUntil = 0
+		rec.dizzyUntil = 0
+		rec.knockedDown = false
 		for _, tr in pairs(rec.trails) do tr.Enabled = false end
 	end
 end
 
 local victoryModel = nil
+local resultsActive = false
 function Animator.SetVictory(model)
 	victoryModel = model
+	resultsActive = model ~= nil
 end
 
 -- Per frame -------------------------------------------------------------------------------------
-
-local function toCF(v, scale, joint)
-	local rot = CFrame.Angles(math.rad(v[1]), math.rad(v[2]), math.rad(v[3]))
-	local pos = Vector3.new(v[4] or 0, v[5] or 0, v[6] or 0) * scale
-	if joint == "Root" then
-		-- spin around the middle of the body instead of the hips
-		local h = 0.9 * scale
-		return CFrame.new(pos) * CFrame.new(0, h, 0) * rot * CFrame.new(0, -h, 0)
-	end
-	return CFrame.new(pos) * rot
-end
 
 local function isGrounded(rec, localState)
 	if localState then return localState.grounded end
@@ -272,25 +316,66 @@ local function loopU(t, period)
 	return (t % period) / period
 end
 
+-- tilt the head toward the nearest other fighter
+local function lookAtNearest(rec, pose)
+	local root = rec.root
+	local best, bestD
+	for m, other in pairs(records) do
+		if m ~= rec.model and other.root and other.root.Position.Y < root.Position.Y + 200 then
+			local d = (other.root.Position - root.Position).Magnitude
+			if d < 40 and (not bestD or d < bestD) then
+				best, bestD = other, d
+			end
+		end
+	end
+	if not best or not pose then return pose end
+	local off = best.root.Position - root.Position
+	local pitch = math.deg(math.atan2(off.Y, math.max(math.abs(off.X), 1)))
+	local p = table.clone(pose)
+	local base = p.Neck or { 0, 0, 0 }
+	p.Neck = { (base[1] or 0) + math.clamp(pitch, -25, 30) * 0.8, base[2] or 0, base[3] or 0 }
+	return p
+end
+
 -- Returns pose, source id (a change triggers a blend), blend time
-local function choosePose(rec, t)
+local function choosePose(rec, t, dt)
 	local model = rec.model
 	local S = Poses.States
 	local localState = (model == Animator.LocalModel and Animator.LocalState) and Animator.LocalState() or nil
-
-	-- track landings every frame so the squash only plays on a real touchdown
 	local root = rec.root
 	if not root then return nil end
+
+	-- movement bookkeeping (every frame so the triggers only fire on real transitions)
 	local v = root.AssemblyLinearVelocity
+	local speed = math.abs(v.X)
 	local grounded = isGrounded(rec, localState)
 	if grounded and not rec.wasGrounded and rec.prevVy < -25 then
 		rec.landUntil = t + 0.12
 	end
+	if not grounded and rec.wasGrounded and v.Y > 15 then
+		rec.takeoffUntil = t + 0.09
+	end
+	local facing = root.CFrame.LookVector.X >= 0 and 1 or -1
+	if facing ~= rec.facing then
+		rec.facing = facing
+		if grounded then rec.turnUntil = t + 0.1 end
+	end
+	if grounded and speed < 5 and rec.prevSpeed > 20 then
+		rec.skidUntil = t + 0.16
+	end
 	rec.wasGrounded = grounded
 	rec.prevVy = v.Y
+	rec.prevSpeed = speed
+	if grounded and speed > 1 then
+		rec.runPhase = (rec.runPhase + speed * dt / rec.runStyle.stride) % 1
+	end
 
-	if model == victoryModel then
-		return Poses.Sample(rec.moves.taunt.anim, loopU(t, rec.moves.taunt.dur)), "victory", 0.2
+	-- results screen
+	if resultsActive then
+		if model == victoryModel then
+			return Poses.Sample(rec.moves.taunt.anim, loopU(t, rec.moves.taunt.dur)), "victory", 0.2
+		end
+		return Poses.Sample("clap", loopU(t + (rec.def.Index or 0) * 0.13, 0.5)), "clap", 0.2
 	end
 
 	local grabbed = localState and localState.grabbed or (not localState and model:GetAttribute("Grabbed"))
@@ -305,21 +390,36 @@ local function choosePose(rec, t)
 	end
 
 	if localState and localState.ledge or (not localState and model:GetAttribute("OnLedge")) then
-		return S.ledge, "ledge", 0.08
+		return Poses.LedgeHang(t), "ledge", 0.08
 	end
 
 	if t < rec.hitstunUntil then
+		rec.idleSince = t
+		if t < rec.dizzyUntil and t >= rec.hitlagUntil then
+			return Poses.Dizzy(t), "dizzy", 0.15
+		end
 		if rec.tumble and t >= rec.hitlagUntil then
+			-- slam into the floor while tumbling = knocked flat
+			if grounded and t - (rec.hitlagUntil or 0) > 0.15 then
+				rec.knockedDown = true
+			end
+			if rec.knockedDown then
+				return S.knockdown, "knockdown", 0.08
+			end
 			local pose = table.clone(S.tumble)
 			pose.Root = { (t * 620) % 360, 0, 0 }
 			return pose, "tumble", 0.05
 		end
-		local pose = table.clone(S.flinch)
+		local pose = table.clone(rec.hitFromBehind and S.flinchBack or S.flinch)
 		if t < rec.hitlagUntil then
 			-- shake in place during hitlag
 			pose.Root = { 0, 0, 0, (math.random() - 0.5) * 0.5, 0, (math.random() - 0.5) * 0.5 }
 		end
 		return pose, "flinch", 0.03
+	end
+	if rec.knockedDown then
+		rec.knockedDown = false
+		Animator.PlayAnim(model, "getup", 0.35)
 	end
 
 	if rec.anim then
@@ -328,6 +428,7 @@ local function choosePose(rec, t)
 		if t < a.pauseUntil then elapsed = a.pauseUntil - a.start - a.paused end
 		local u = elapsed / a.move.dur
 		if u <= 1 then
+			rec.idleSince = t
 			return Poses.Sample(a.move.anim, u), "move:" .. a.move.key .. a.start, 0.05
 		end
 		rec.anim = nil
@@ -365,6 +466,7 @@ local function choosePose(rec, t)
 
 	local holding = localState and localState.holding or (not localState and model:GetAttribute("Holding"))
 	if holding then return S.hold, "hold", 0.08 end
+	if t < rec.releaseUntil then return S.release, "release", 0.05 end
 
 	if localState then
 		if localState.shielding then return S.shield, "shield", 0.08 end
@@ -373,27 +475,71 @@ local function choosePose(rec, t)
 		return S.shield, "shield", 0.08
 	end
 	if model:GetAttribute("Reviving") then
-		return S.revive, "revive", 0.15
+		return Poses.Revive(t), "revive", 0.15
 	end
 
 	-- movement layer -------------------------------------------------------------------------
 	if t < rec.landUntil then
+		rec.idleSince = t
 		return S.land, "land", 0.04
 	end
 	if not grounded then
-		local fu = (t - rec.flipStart) / 0.34
+		rec.idleSince = t
+		local fu = (t - rec.flipStart) / rec.flipDur
 		if fu >= 0 and fu <= 1 then
-			return Poses.Sample("flip", fu), "flip" .. rec.flipStart, 0.04
+			return Poses.Sample(rec.flipAnim, fu), "flip" .. rec.flipStart, 0.04
 		end
+		if t < rec.takeoffUntil then return S.takeoff, "takeoff", 0.04 end
+		if v.Y < -(rec.def.Stats.FallSpeed + 6) then return S.dive, "dive", 0.1 end
 		if v.Y > 8 then return S.rise, "rise", 0.12 end
 		return S.fall, "fall", 0.15
 	end
-	local crouching = localState and localState.crouching or (not localState and model:GetAttribute("Crouching"))
-	if crouching then return S.crouch, "crouch", 0.08 end
-	if math.abs(v.X) < 3 then
-		return Poses.Sample(rec.stance, loopU(t, rec.stancePeriod)), "stance", 0.18
+	if t < rec.turnUntil then
+		rec.idleSince = t
+		return S.turn, "turn", 0.04
 	end
-	return nil, nil, 0.15
+	if t < rec.skidUntil then
+		rec.idleSince = t
+		return S.skid, "skid", 0.05
+	end
+	local crouching = localState and localState.crouching or (not localState and model:GetAttribute("Crouching"))
+	if crouching then
+		rec.idleSince = t
+		return S.crouch, "crouch", 0.08
+	end
+	if speed >= 3 then
+		rec.idleSince = t
+		rec.fidget = nil
+		local runSpeed = rec.def.Stats.RunSpeed
+		local amount = math.clamp((speed - 3) / math.max(runSpeed * 0.85 - 3, 1), 0.35, 1)
+		return lookAtNearest(rec, Poses.Run(rec.runStyle, rec.runPhase, amount)), "run", 0.12
+	end
+
+	-- standing still: teeter on the edge, fidget, or hold the fighting stance
+	local stage = Config.GetStage()
+	local p = root.Position
+	if p.Y - stage.Top < 4.5 then
+		local toEdge = facing > 0 and (stage.Right - p.X) or (p.X - stage.Left)
+		if toEdge < 1.6 and toEdge > -0.6 then
+			return Poses.Teeter(t), "teeter", 0.12
+		end
+	end
+	if rec.fidget then
+		local u = (t - rec.fidget.start) / rec.fidget.dur
+		if u <= 1 then
+			return Poses.Sample(rec.fidget.name, u), "fidget" .. rec.fidget.start, 0.2
+		end
+		rec.fidget = nil
+		rec.idleSince = t
+		rec.nextFidget = 5 + math.random() * 6
+	else
+		-- fighters fidget less often mid-match than in free play
+		local wait = model:GetAttribute("InMatch") and rec.nextFidget * 2 or rec.nextFidget
+		if t - rec.idleSince > wait then
+			rec.fidget = { name = Poses.Fidgets[math.random(1, #Poses.Fidgets)], start = t, dur = 1.4 }
+		end
+	end
+	return lookAtNearest(rec, Poses.Sample(rec.stance, loopU(t, rec.stancePeriod))), "stance", 0.18
 end
 
 -- Blends from whatever we showed last frame to the new pose over `blendDur`
@@ -414,7 +560,7 @@ local function apply(rec, pose, src, blendDur, t)
 		local v = pose and pose[joint]
 		local from = rec.from[joint]
 		if v then
-			local target = toCF(v, rec.scale, joint)
+			local target = Poses.ToCFrame(v, rec.scale, joint)
 			local cf = target
 			if alpha < 1 then
 				cf = (from or motor.Transform):Lerp(target, alpha)
@@ -445,14 +591,14 @@ function Animator.Init()
 		rayParams.FilterDescendantsInstances = { Config.GetStage().Model }
 	end)
 
-	RunService.Stepped:Connect(function()
+	RunService.Stepped:Connect(function(_, dt)
 		local t = clock()
 		for model, rec in pairs(records) do
 			if not model.Parent then
 				records[model] = nil
 				continue
 			end
-			local pose, src, blend = choosePose(rec, t)
+			local pose, src, blend = choosePose(rec, t, math.min(dt, 0.1))
 			apply(rec, pose, src, blend, t)
 		end
 	end)

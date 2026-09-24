@@ -747,7 +747,7 @@ function Combat.Respawn(f, revival)
 	f.lastHitBy = nil
 	f.model:SetAttribute("Percent", 0)
 	f.model:SetAttribute("ShieldHP", Config.ShieldMax)
-	local pos = Vector3.new(stage.CenterX, stage.Top + (revival and 24 or 3.5) * 1, stage.Z)
+	local pos = Vector3.new(stage.CenterX, stage.Top + (revival and 24 or 3.5), stage.Z)
 	f.root.Anchored = true
 	f.model:PivotTo(CFrame.lookAt(pos, pos + Vector3.new(1, 0, 0)))
 	f.root.AssemblyLinearVelocity = Vector3.zero

@@ -8,7 +8,6 @@ local Controller = require(ReplicatedStorage:WaitForChild("Smash"):WaitForChild(
 local Input = {}
 Input.TapJump = false         -- when true, Up (W / stick up) also jumps
 Input.RightStickSmash = true  -- flicking the right stick does a smash attack
-Input.Blocked = false
 Input.OnChanged = nil         -- called after the player changes a binding or setting (used to save)
 Input.OnImported = nil        -- called after saved bindings are loaded (used to refresh menus)
 Input.MaxPerAction = 4
@@ -372,9 +371,6 @@ function Input.Poll()
 	prev.up, prev.down, prev.xs, prev.stickUp = up, down, xs, stickUp
 	table.clear(pressed)
 	smashDir = nil
-	if Input.Blocked then
-		return Controller.BlankInput()
-	end
 	return input
 end
 
