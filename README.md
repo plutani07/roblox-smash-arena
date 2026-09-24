@@ -26,7 +26,18 @@ Open **`place/RobloxSmashGames_Smash.rbxl`** in Roblox Studio and press **Play**
   - chargeable smash attacks
   - five aerials, including a spiking down-air
   - four unique specials per fighter
-- **CPU opponents.** Three difficulty levels, plus a training dummy in free play. CPUs approach, attack, shield, dodge, edge-guard, and recover with jumps and up-specials.
+- **Grabs and throws.**
+  - Grabs go through shields, so you get Smash's attack / shield / grab rock-paper-scissors.
+  - While holding someone, attack pummels them, and a direction throws them forward, back, up or down. Back throw is the KO throw, and down throw sets up combos.
+  - If you're grabbed, mash any button to break out sooner. The more damage you have, the longer you're held.
+- **Crouching.** Hold down to crouch. It makes you shorter, so some high attacks miss you.
+- **Procedural animation.** No animation assets are needed:
+  - every fighter has their own idle fighting stance, taunt and victory pose
+  - double jumps do a front flip
+  - jumping, falling, landing and crouching poses
+  - grab, pummel, throw and "being held" animations
+  - every pose blends smoothly into the next
+- **CPU opponents.** Three difficulty levels, plus a training dummy in free play. CPUs approach, attack, shield, dodge, grab and throw, mash out of grabs, edge-guard, and recover with jumps and up-specials.
 - **2.5D camera.** It frames every fighter and zooms as they spread out.
 - **Smash-style HUD.** Damage cards change color with percent, and stock icons show remaining lives.
 - **Character select screen.** Each fighter spins in a 3D preview, with stat bars and a list of their specials.
@@ -56,7 +67,9 @@ These are the defaults. Every one of them can be changed in the game (see **Rema
 | Attack (neutral, tilts, aerials by direction) | J or left click | A |
 | Smash attack (hold to charge) | L | Right stick flick |
 | Special (+ direction) | K or right click | B |
-| Shield / roll (+A/D) / spot dodge (+S) / air dodge | Q or Shift | Bumpers / triggers |
+| Shield / roll (+A/D) / spot dodge (+S) / air dodge | Q or Shift | Triggers (LT / RT) |
+| Grab (or shield + attack), then a direction to throw, attack to pummel | E | Bumpers (LB / RB) |
+| Crouch | S (hold) | Stick down (hold) |
 | Taunt | T | D-pad up |
 | Fighter select (in the lobby) | M | View / Select |
 | Controls menu | C | View / Select during a match, or Y on the fighter select screen |

@@ -367,6 +367,7 @@ function Menu.RefreshHelp()
 			"<b>SMASH</b>  " .. smash .. "  (hold to charge)",
 			"<b>SPECIAL</b>  " .. d("special") .. "  (+ up / down / side)",
 			"<b>SHIELD</b>  " .. d("shield") .. "  (+ side roll, + down dodge, in air = air dodge)",
+			"<b>GRAB</b>  " .. d("grab") .. "  (or shield + attack) - then a direction throws, attack pummels",
 			"<b>TAUNT</b>  " .. d("taunt"),
 			"Stick down in air = fast fall, on a platform = drop",
 			"Knocked past the edges = <b>KO!</b>  Higher % = you fly farther.",
@@ -381,6 +382,7 @@ function Menu.RefreshHelp()
 			"<b>SMASH</b>  " .. d("smash") .. "  (hold to charge)",
 			"<b>SPECIAL</b>  " .. d("special") .. "  (+ up / down / side)",
 			"<b>SHIELD</b>  " .. d("shield") .. "  (+ side roll, + down dodge, in air = air dodge)",
+			"<b>GRAB</b>  " .. d("grab") .. "  (or shield + attack) - then a direction throws, attack pummels",
 			"<b>TAUNT</b>  " .. d("taunt"),
 			"Knocked past the edges = <b>KO!</b>  Higher % = you fly farther.",
 		}

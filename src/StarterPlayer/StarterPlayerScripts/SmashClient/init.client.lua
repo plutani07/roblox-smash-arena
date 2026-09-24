@@ -134,7 +134,14 @@ local function setupCharacter(char)
 			end,
 			ledge = function(on) Action:FireServer("Ledge", on) end,
 			leaveRevival = function() Action:FireServer("LeaveRevival") end,
-			fx = function(kind) Action:FireServer("Fx", kind) end,
+			fx = function(kind)
+				Action:FireServer("Fx", kind)
+				if kind == "airjump" then Animator.OnAirJump(char) end
+			end,
+			pummel = function() Action:FireServer("Pummel") end,
+			throw = function(dir) Action:FireServer("Throw", dir) end,
+			mash = function() Action:FireServer("Mash") end,
+			crouch = function(on) Action:FireServer("Crouch", on) end,
 		},
 	})
 	Animator.LocalState = function()
@@ -223,6 +230,30 @@ Event.OnClientEvent:Connect(function(kind, data)
 		Effects.OnShockwave(data)
 	elseif kind == "Fx" then
 		Effects.OnFx(data)
+		if data.kind == "airjump" and data.id ~= myId then
+			local model = Animator.ModelFor(data.id)
+			if model then Animator.OnAirJump(model) end
+		end
+	elseif kind == "Grab" then
+		Effects.OnGrab(data)
+		if controller then
+			if data.v == myId then
+				controller:EnterGrabbed(Animator.ModelFor(data.a), data.scale)
+			elseif data.a == myId then
+				controller:EnterHold(Animator.ModelFor(data.v))
+			end
+		end
+	elseif kind == "GrabEnd" then
+		if controller then
+			if data.v == myId then controller:ExitGrabbed(data.push) end
+			if data.a == myId then controller:ExitHold(data.apush) end
+		end
+	elseif kind == "Pummel" then
+		Effects.OnPummel(data)
+		if data.a ~= myId then
+			local model = Animator.ModelFor(data.a)
+			if model then Animator.PlayMove(model, "pummel") end
+		end
 	elseif kind == "KO" then
 		Effects.OnKO(data)
 		Animator.Reset(data.id)

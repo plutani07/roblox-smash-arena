@@ -1,4 +1,7 @@
 -- Plays the procedural Poses on every fighter (runs on each client, after the default animations).
+-- Layers, highest priority first: victory, grabbed, ledge, hitstun, attacks, charging, dodges, holding,
+-- shield, helpless, revival, then movement (landing squash, double-jump flip, rise/fall, crouch and
+-- each fighter's idle fighting stance). Switching between any two poses blends smoothly.
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17,6 +20,10 @@ local records = {}  -- model -> record
 local byId = {}     -- fighter id -> model
 
 local TRAIL_LIMBS = { "RightHand", "LeftHand", "RightFoot", "LeftFoot" }
+
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Include
+rayParams.RespectCanCollide = false
 
 local function clock() return os.clock() end
 
@@ -56,11 +63,16 @@ local function track(model)
 	local key = model:GetAttribute("FighterKey")
 	if not key then return end
 	local def = Fighters.Get(key)
+	local lower = string.lower(def.Key)
 	local rec = {
 		model = model,
 		def = def,
 		moves = Moves.Get(key),
 		scale = def.Scale or 1,
+		stance = "stance_" .. lower,
+		stancePeriod = Poses.StancePeriod[lower] or 1.2,
+		humanoid = model:FindFirstChildOfClass("Humanoid"),
+		root = model:FindFirstChild("HumanoidRootPart"),
 		joints = {},
 		trails = makeTrails(model, def),
 		anim = nil,       -- { move, start, paused, pauseUntil }
@@ -69,8 +81,15 @@ local function track(model)
 		hitlagUntil = 0,
 		dodge = nil,      -- { kind, start, dur }
 		charging = nil,   -- { key, start }
-		weight = 0,
-		spin = 0,
+		flipStart = -10,
+		landUntil = 0,
+		wasGrounded = true,
+		prevVy = 0,
+		src = nil,
+		from = {},
+		out = {},
+		blendStart = 0,
+		blendDur = 0,
 	}
 	for joint, info in pairs(Poses.Joints) do
 		local part = model:FindFirstChild(info[1])
@@ -118,7 +137,6 @@ function Animator.PlayMove(model, key)
 	if not move then return end
 	rec.anim = { move = move, start = clock(), paused = 0, pauseUntil = 0 }
 	rec.charging = nil
-	rec.spin = 0
 	for _, tr in pairs(rec.trails) do tr.Enabled = false end
 	for _, limb in ipairs(move.trail or {}) do
 		if rec.trails[limb] then rec.trails[limb].Enabled = true end
@@ -150,6 +168,11 @@ function Animator.LocalCharge(model, key)
 	end
 end
 
+function Animator.OnAirJump(model)
+	local rec = records[model]
+	if rec then rec.flipStart = clock() end
+end
+
 local function pause(rec, sec)
 	local t = clock()
 	rec.hitlagUntil = math.max(rec.hitlagUntil, t + sec)
@@ -179,7 +202,6 @@ function Animator.OnHit(data)
 		vrec.hitlagUntil = clock() + lag
 		vrec.hitstunUntil = clock() + lag + (data.hitstun or 0)
 		vrec.tumble = data.tumble
-		vrec.spin = 0
 		for _, tr in pairs(vrec.trails) do tr.Enabled = false end
 	end
 end
@@ -193,7 +215,7 @@ function Animator.OnDodge(data)
 end
 
 function Animator.OnCounter(data)
-	local rec, model = recFor(data.id)
+	local rec = recFor(data.id)
 	if not rec then return end
 	rec.anim = { move = { key = "counterhit", anim = "counterhit", dur = 0.4 }, start = clock(), paused = 0, pauseUntil = 0 }
 end
@@ -237,43 +259,81 @@ local function toCF(v, scale, joint)
 	return CFrame.new(pos) * rot
 end
 
-local function statePose(rec, t)
+local function isGrounded(rec, localState)
+	if localState then return localState.grounded end
+	local root, hum = rec.root, rec.humanoid
+	if not root or not hum then return true end
+	if root.AssemblyLinearVelocity.Y > 6 then return false end
+	local reach = hum.HipHeight + root.Size.Y / 2 + 0.6
+	return workspace:Raycast(root.Position, Vector3.new(0, -reach, 0), rayParams) ~= nil
+end
+
+local function loopU(t, period)
+	return (t % period) / period
+end
+
+-- Returns pose, source id (a change triggers a blend), blend time
+local function choosePose(rec, t)
 	local model = rec.model
 	local S = Poses.States
 	local localState = (model == Animator.LocalModel and Animator.LocalState) and Animator.LocalState() or nil
 
+	-- track landings every frame so the squash only plays on a real touchdown
+	local root = rec.root
+	if not root then return nil end
+	local v = root.AssemblyLinearVelocity
+	local grounded = isGrounded(rec, localState)
+	if grounded and not rec.wasGrounded and rec.prevVy < -25 then
+		rec.landUntil = t + 0.12
+	end
+	rec.wasGrounded = grounded
+	rec.prevVy = v.Y
+
 	if model == victoryModel then
-		local u = (t % 1.1) / 1.1
-		return Poses.Sample("taunt", u)
+		return Poses.Sample(rec.moves.taunt.anim, loopU(t, rec.moves.taunt.dur)), "victory", 0.2
 	end
+
+	local grabbed = localState and localState.grabbed or (not localState and model:GetAttribute("Grabbed"))
+	if grabbed and t >= rec.hitstunUntil then
+		local pose = table.clone(S.grabbed)
+		local s1, s2 = math.sin(t * 16), math.sin(t * 12)
+		pose.RS = { 150 + s1 * 22, 0, 30 }
+		pose.LS = { 150 - s1 * 22, 0, -30 }
+		pose.RH = { 20 + s2 * 28, 0, 6 }
+		pose.LH = { 20 - s2 * 28, 0, -6 }
+		return pose, "grabbed", 0.08
+	end
+
 	if localState and localState.ledge or (not localState and model:GetAttribute("OnLedge")) then
-		return S.ledge
+		return S.ledge, "ledge", 0.08
 	end
+
 	if t < rec.hitstunUntil then
 		if rec.tumble and t >= rec.hitlagUntil then
-			rec.spin += 1
 			local pose = table.clone(S.tumble)
 			pose.Root = { (t * 620) % 360, 0, 0 }
-			return pose
+			return pose, "tumble", 0.05
 		end
 		local pose = table.clone(S.flinch)
 		if t < rec.hitlagUntil then
 			-- shake in place during hitlag
 			pose.Root = { 0, 0, 0, (math.random() - 0.5) * 0.5, 0, (math.random() - 0.5) * 0.5 }
 		end
-		return pose
+		return pose, "flinch", 0.03
 	end
+
 	if rec.anim then
 		local a = rec.anim
 		local elapsed = t - a.start - a.paused
 		if t < a.pauseUntil then elapsed = a.pauseUntil - a.start - a.paused end
 		local u = elapsed / a.move.dur
 		if u <= 1 then
-			return Poses.Sample(a.move.anim, u)
+			return Poses.Sample(a.move.anim, u), "move:" .. a.move.key .. a.start, 0.05
 		end
 		rec.anim = nil
 		for _, tr in pairs(rec.trails) do tr.Enabled = false end
 	end
+
 	if rec.charging then
 		local move = rec.moves[rec.charging.key]
 		if move and t - rec.charging.start < 3 then
@@ -281,35 +341,94 @@ local function statePose(rec, t)
 			local pose = Poses.Sample(move.anim, u) or {}
 			local shake = (math.random() - 0.5) * 0.12
 			pose.Root = { 0, 0, 0, shake, 0, shake }
-			return pose
+			return pose, "charge", 0.08
 		end
 		rec.charging = nil
 	end
+
 	if rec.dodge then
 		local d = rec.dodge
 		local u = (t - d.start) / d.dur
 		if u <= 1 then
+			local id = "dodge:" .. d.kind .. d.start
 			if d.kind == "roll" then
 				local pose = table.clone(S.spotdodge)
 				pose.Root = { -360 * u, 0, 0, 0, -1, 0 }
-				return pose
+				return pose, id, 0.04
 			elseif d.kind == "air" then
-				return S.airdodge
+				return S.airdodge, id, 0.05
 			end
-			return S.spotdodge
+			return S.spotdodge, id, 0.04
 		end
 		rec.dodge = nil
 	end
+
+	local holding = localState and localState.holding or (not localState and model:GetAttribute("Holding"))
+	if holding then return S.hold, "hold", 0.08 end
+
 	if localState then
-		if localState.shielding then return S.shield end
-		if localState.helpless then return S.helpless end
+		if localState.shielding then return S.shield, "shield", 0.08 end
+		if localState.helpless then return S.helpless, "helpless", 0.15 end
 	elseif model:GetAttribute("Shielding") then
-		return S.shield
+		return S.shield, "shield", 0.08
 	end
 	if model:GetAttribute("Reviving") then
-		return S.revive
+		return S.revive, "revive", 0.15
 	end
-	return nil
+
+	-- movement layer -------------------------------------------------------------------------
+	if t < rec.landUntil then
+		return S.land, "land", 0.04
+	end
+	if not grounded then
+		local fu = (t - rec.flipStart) / 0.34
+		if fu >= 0 and fu <= 1 then
+			return Poses.Sample("flip", fu), "flip" .. rec.flipStart, 0.04
+		end
+		if v.Y > 8 then return S.rise, "rise", 0.12 end
+		return S.fall, "fall", 0.15
+	end
+	local crouching = localState and localState.crouching or (not localState and model:GetAttribute("Crouching"))
+	if crouching then return S.crouch, "crouch", 0.08 end
+	if math.abs(v.X) < 3 then
+		return Poses.Sample(rec.stance, loopU(t, rec.stancePeriod)), "stance", 0.18
+	end
+	return nil, nil, 0.15
+end
+
+-- Blends from whatever we showed last frame to the new pose over `blendDur`
+local function apply(rec, pose, src, blendDur, t)
+	if src ~= rec.src then
+		rec.src = src
+		rec.blendStart = t
+		rec.blendDur = blendDur or 0.1
+		rec.from = rec.out
+	end
+	local alpha = 1
+	if rec.blendDur > 0 then
+		alpha = math.clamp((t - rec.blendStart) / rec.blendDur, 0, 1)
+	end
+	alpha = alpha * alpha * (3 - 2 * alpha)
+	local out = {}
+	for joint, motor in pairs(rec.joints) do
+		local v = pose and pose[joint]
+		local from = rec.from[joint]
+		if v then
+			local target = toCF(v, rec.scale, joint)
+			local cf = target
+			if alpha < 1 then
+				cf = (from or motor.Transform):Lerp(target, alpha)
+			end
+			motor.Transform = cf
+			out[joint] = cf
+		elseif from and alpha < 1 then
+			-- easing back into the default animation
+			local cf = from:Lerp(motor.Transform, alpha)
+			motor.Transform = cf
+			out[joint] = cf
+		end
+	end
+	rec.out = out
 end
 
 function Animator.Init()
@@ -322,27 +441,19 @@ function Animator.Init()
 	end)
 	CollectionService:GetInstanceRemovedSignal("SmashFighter"):Connect(untrack)
 
-	RunService.Stepped:Connect(function(_, dt)
+	task.spawn(function()
+		rayParams.FilterDescendantsInstances = { Config.GetStage().Model }
+	end)
+
+	RunService.Stepped:Connect(function()
 		local t = clock()
 		for model, rec in pairs(records) do
 			if not model.Parent then
 				records[model] = nil
 				continue
 			end
-			local pose = statePose(rec, t)
-			local target = pose and 1 or 0
-			rec.weight += (target - rec.weight) * math.clamp(dt * 22, 0, 1)
-			if pose then rec.lastPose = pose end
-			local use = pose or rec.lastPose
-			if use and rec.weight > 0.01 then
-				for joint, motor in pairs(rec.joints) do
-					local v = use[joint]
-					if v then
-						local cf = toCF(v, rec.scale, joint)
-						motor.Transform = motor.Transform:Lerp(cf, rec.weight)
-					end
-				end
-			end
+			local pose, src, blend = choosePose(rec, t)
+			apply(rec, pose, src, blend, t)
 		end
 	end)
 end

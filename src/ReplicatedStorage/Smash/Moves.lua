@@ -96,6 +96,17 @@ local Normals = {
 		hits = { { t = { 0.12, 0.22 }, off = V2(2.4, 0), size = V2(4.6, 3), dmg = 8, ang = 45, bkb = 32, kbg = 0.4 } },
 	},
 	taunt = { anim = "taunt", dur = 1.1 },
+
+	-- Grabs: the grab hitbox goes straight through shields. Holding: attack = pummel, direction = throw.
+	grab = {
+		anim = "grab", dur = 0.5, trail = { "RightHand", "LeftHand" },
+		hits = { { t = { 0.1, 0.18 }, off = V2(2.2, 0.2), size = V2(2.8, 3.2), grab = true, dmg = 0, ang = 0, bkb = 0, kbg = 0 } },
+	},
+	pummel = { anim = "pummel", dur = 0.3, pummel = { dmg = 1.6 } },
+	fthrow = { anim = "fthrow", dur = 0.48, throw = { t = 0.16, hit = { dmg = 7, ang = 42, bkb = 58, kbg = 0.55 } } },
+	bthrow = { anim = "bthrow", dur = 0.55, throw = { t = 0.24, hit = { dmg = 9, ang = 138, bkb = 60, kbg = 0.68 } } },
+	uthrow = { anim = "uthrow", dur = 0.5, throw = { t = 0.2, hit = { dmg = 8, ang = 90, bkb = 62, kbg = 0.62 } } },
+	dthrow = { anim = "dthrow", dur = 0.5, throw = { t = 0.18, hit = { dmg = 5, ang = 78, bkb = 48, kbg = 0.35 } } },
 }
 
 -- Specials per fighter ----------------------------------------------------------
@@ -283,6 +294,8 @@ local function scaleDamage(move, power)
 	if move.projectile then scaleHit(move.projectile.hit) end
 	if move.landHit then scaleHit(move.landHit.hit) end
 	if move.counter then scaleHit(move.counter.hit) end
+	if move.throw then scaleHit(move.throw.hit) end
+	if move.pummel then scaleHit(move.pummel) end
 end
 
 local cache = {}
@@ -305,6 +318,8 @@ function Moves.Get(fighterKey)
 	for key, move in pairs(Specials[def.Key] or Specials.Blaze) do
 		set[key] = deepCopy(move)
 	end
+	-- every fighter has their own taunt (and victory) animation
+	set.taunt.anim = "taunt_" .. string.lower(def.Key)
 	for key, move in pairs(set) do
 		move.key = key
 		scaleTimes(move, def.Stats.AttackSpeed)
@@ -315,6 +330,7 @@ function Moves.Get(fighterKey)
 		end
 		if move.hits then for _, h in ipairs(move.hits) do tagFx(h) end end
 		if move.landHit then tagFx(move.landHit.hit) end
+		if move.throw then tagFx(move.throw.hit) end
 	end
 	cache[fighterKey] = set
 	return set
@@ -323,6 +339,9 @@ end
 -- Which move a button press maps to.
 -- dir: "neutral" | "side" | "up" | "down"; forward: true when the side input points the way we face
 function Moves.Resolve(button, dir, grounded, forward)
+	if button == "grab" then
+		return grounded and "grab" or nil
+	end
 	if button == "special" then
 		if dir == "up" then return "uspecial" end
 		if dir == "down" then return "dspecial" end

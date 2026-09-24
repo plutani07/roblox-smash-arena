@@ -374,6 +374,14 @@ actionRemote.OnServerEvent:Connect(function(player, kind, a, b, c)
 		if f then Combat.Ledge(f, a == true) end
 	elseif kind == "LeaveRevival" then
 		if f and f.reviving then Combat.EndRevival(f) end
+	elseif kind == "Pummel" then
+		if f then Combat.Pummel(f) end
+	elseif kind == "Throw" then
+		if f and (a == "f" or a == "b" or a == "u" or a == "d") then Combat.Throw(f, a) end
+	elseif kind == "Mash" then
+		if f then Combat.Mash(f) end
+	elseif kind == "Crouch" then
+		if f then Combat.SetCrouch(f, a == true) end
 	elseif kind == "Fx" then
 		if f and os.clock() - (lastFx[player] or 0) > 0.1 then
 			lastFx[player] = os.clock()

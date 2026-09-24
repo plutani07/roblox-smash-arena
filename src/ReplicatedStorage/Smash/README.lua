@@ -8,7 +8,8 @@
 	  J / left click = attack (neutral, tilts, aerials by direction) · L = smash attack (hold to charge)
 	  K / right click = special (neutral / side / up / down) · Q or Shift = shield (+A/D roll, +S spot dodge,
 	  in the air = air dodge) · T = taunt · M = fighter select · C = controls menu · H = hide controls
-	Gamepad: stick move · X/Y jump · A attack · B special · right stick smash · bumpers/triggers shield
+	  E = grab (or shield + attack); while holding, a direction throws and attack pummels
+	Gamepad: stick move · X/Y jump · A attack · B special · right stick smash · triggers shield · bumpers grab
 	  View/Select = fighter select in the lobby (Y there opens Controls), Controls during a match
 
 	Remapping: every control can be changed in-game in the Controls menu (controller or keyboard tab).

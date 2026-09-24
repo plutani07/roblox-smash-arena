@@ -30,7 +30,7 @@ function Controller.BlankInput()
 		x = 0, up = false, down = false, upPressed = false, downPressed = false, xPressed = 0,
 		jumpPressed = false, jumpHeld = false, attackPressed = false, specialPressed = false,
 		specialHeld = false, smashPressed = false, smashHeld = false, shieldHeld = false,
-		shieldPressed = false, tauntPressed = false, anyPressed = false,
+		shieldPressed = false, tauntPressed = false, grabPressed = false, anyPressed = false,
 	}
 end
 
@@ -78,6 +78,10 @@ function Controller:Reset()
 	self.buffer = nil
 	if self.shielding and self.hooks.shield then self.hooks.shield(false) end
 	self.shielding = false
+	self.holding = nil
+	self.grabbedBy = nil
+	if self.crouching and self.hooks.crouch then self.hooks.crouch(false) end
+	self.crouching = false
 	if self.root then
 		self.root.AssemblyLinearVelocity = Vector3.zero
 	end
@@ -264,6 +268,8 @@ function Controller:ApplyHit(info)
 	self.action = nil
 	self.charging = nil
 	self.dodge = nil
+	self.holding = nil
+	self.grabbedBy = nil
 	self.landLag = 0
 	self.helpless = false
 	self.fastFalling = false
@@ -286,6 +292,114 @@ end
 
 function Controller:ApplyPush(vx)
 	self.pushVX = vx
+end
+
+-- Grabs -----------------------------------------------------------------------------------------
+
+local function clearForGrab(self)
+	if self.ledge then
+		self.ledge = nil
+		self.ledgeCooldown = Config.LedgeRegrabCooldown
+		if self.hooks.ledge then self.hooks.ledge(false) end
+	end
+	if self.shielding then
+		self.shielding = false
+		if self.hooks.shield then self.hooks.shield(false) end
+	end
+	self.action = nil
+	self.charging = nil
+	self.dodge = nil
+	self.landLag = 0
+	self.hitstun = 0
+	self.pendingLaunch = nil
+end
+
+-- We caught someone: stand still, attack = pummel, a direction = throw
+function Controller:EnterHold(victimModel)
+	clearForGrab(self)
+	self.grabbedBy = nil
+	self.holding = { victim = victimModel, t = 0, nextPummel = 0 }
+end
+
+function Controller:ExitHold(pushVX)
+	if not self.holding then return end
+	self.holding = nil
+	if pushVX then
+		self.pushVX = pushVX
+		self.landLag = 0.2
+	end
+end
+
+-- Someone caught us: follow their hands and mash to break out
+function Controller:EnterGrabbed(attackerModel, attackerScale)
+	clearForGrab(self)
+	self.holding = nil
+	self.grabbedBy = { model = attackerModel, scale = attackerScale or 1, t = 0 }
+end
+
+function Controller:ExitGrabbed(pushVX)
+	if not self.grabbedBy then return end
+	self.grabbedBy = nil
+	if pushVX then
+		self.launchVX = pushVX
+		self.hitstun = 0.22
+		self.root.AssemblyLinearVelocity = Vector3.new(pushVX, 24, 0)
+	end
+end
+
+function Controller:_throw(dir)
+	local key = dir .. "throw"
+	local move = self.moves[key]
+	if not move then return end
+	self.holding = nil
+	if self.hooks.throw then self.hooks.throw(dir) end
+	self.action = { key = key, move = move, t = 0, charge = 0, motion = {}, dirs = {}, teleported = false, startGrounded = true }
+	if self.hooks.localMove then self.hooks.localMove(key, 0) end
+end
+
+function Controller:_updateHold(dt, input)
+	local h = self.holding
+	h.t += dt
+	self:_drive(0, 200, dt)
+	self:_gravity(self.stats.Gravity)
+	if h.t < 0.1 then return end
+	local dir
+	if input.upPressed then dir = "u"
+	elseif input.downPressed then dir = "d"
+	elseif input.xPressed ~= 0 then dir = input.xPressed == self.facing and "f" or "b" end
+	if dir then
+		self:_throw(dir)
+	elseif (input.attackPressed or input.grabPressed) and h.t >= h.nextPummel then
+		h.nextPummel = h.t + 0.32
+		if self.hooks.pummel then self.hooks.pummel() end
+		if self.hooks.localMove then self.hooks.localMove("pummel", 0) end
+	end
+end
+
+function Controller:_updateGrabbed(dt, input)
+	local g = self.grabbedBy
+	g.t += dt
+	local aroot = g.model and g.model.Parent and g.model:FindFirstChild("HumanoidRootPart")
+	if not aroot then
+		self.grabbedBy = nil
+		return
+	end
+	local f = aroot.CFrame.LookVector.X >= 0 and 1 or -1
+	local target = aroot.Position + Vector3.new(f * 2.4 * g.scale, 0.3 * g.scale, 0)
+	local err = target - self.root.Position
+	self:_setVX(err.X * 18)
+	self:_setVY(err.Y * 18)
+	self:_gravity(0)
+	self:_face(-f)
+	if input.anyPressed or input.xPressed ~= 0 or input.upPressed or input.downPressed then
+		if self.hooks.mash then self.hooks.mash() end
+	end
+end
+
+function Controller:_setCrouch(on)
+	if on == self.crouching then return end
+	self.crouching = on
+	if self.hooks.crouch then self.hooks.crouch(on) end
 end
 
 function Controller:CancelAction()
@@ -394,6 +508,7 @@ function Controller:_recordPress(input)
 	local button
 	if input.specialPressed then button = "special"
 	elseif input.smashPressed then button = "smash"
+	elseif input.grabPressed then button = "grab"
 	elseif input.attackPressed then button = "attack" end
 	if button then
 		self.buffer = { button = button, t = self.clock }
@@ -697,6 +812,23 @@ function Controller:Step(dt, input)
 		return
 	end
 
+	-- crouch whenever we're standing free and holding down
+	local free = grounded and not self.action and not self.charging and not self.dodge and not self.ledge
+		and self.hitstun <= 0 and not self.holding and not self.grabbedBy and self.landLag <= 0 and not input.shieldHeld
+	self:_setCrouch(free and input.down and math.abs(input.x) < 0.3)
+
+	-- grabs
+	if self.grabbedBy then
+		self:_updateGrabbed(dt, input)
+		self:_planeLock()
+		return
+	end
+	if self.holding then
+		self:_updateHold(dt, input)
+		self:_planeLock()
+		return
+	end
+
 	-- knockback flight
 	if self.hitstun > 0 then
 		self.hitstun -= dt
@@ -793,7 +925,12 @@ function Controller:Step(dt, input)
 		end
 		self:_drive(0, 200, dt)
 		self:_gravity(self.stats.Gravity)
-		if input.jumpPressed then
+		if input.attackPressed or input.grabPressed then
+			-- shield + attack = grab, like Smash
+			self.shielding = false
+			if self.hooks.shield then self.hooks.shield(false) end
+			self:_startAction("grab", 0)
+		elseif input.jumpPressed then
 			self.shielding = false
 			if self.hooks.shield then self.hooks.shield(false) end
 			self:_groundJump()
@@ -936,6 +1073,10 @@ function Controller:GetState()
 		dodgeT = self.dodge and self.dodge.t,
 		helpless = self.helpless,
 		facing = self.facing,
+		holding = self.holding ~= nil,
+		grabbed = self.grabbedBy ~= nil,
+		crouching = self.crouching == true,
+		landLag = self.landLag > 0,
 	}
 end
 

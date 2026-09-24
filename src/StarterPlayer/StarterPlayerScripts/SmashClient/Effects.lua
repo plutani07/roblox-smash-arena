@@ -234,6 +234,26 @@ function Effects.OnCounter(data)
 	Effects.Sound("tick", 0.9, 1.3)
 end
 
+function Effects.OnGrab(data)
+	local model = Effects.ModelFor and Effects.ModelFor(data.v)
+	if model then flash(model, Color3.fromRGB(255, 160, 230), 0.25) end
+	if data.pos then
+		ring(data.pos, Color3.fromRGB(255, 160, 230), 1, 6, 0.2, false)
+		burst(data.pos, Color3.fromRGB(255, 200, 240), 10, 12, 0.6)
+	end
+	Effects.Sound("hit", 0.45, 1.8, data.pos)
+end
+
+function Effects.OnPummel(data)
+	local pos = data.pos
+	burst(pos, Color3.fromRGB(255, 245, 200), 6, 12, 0.5)
+	popText(pos + Vector3.new(0, 2, 0), string.format("%d%%", math.max(1, math.floor(data.dmg + 0.5))), Color3.fromRGB(255, 245, 200), 20)
+	local victim = Effects.ModelFor and Effects.ModelFor(data.v)
+	if victim then flash(victim, Color3.new(1, 1, 1), 0.12) end
+	Effects.Sound("hit", 0.4, 1.6, pos)
+	if Effects.CameraRig then Effects.CameraRig.Shake(0.15, 0.1) end
+end
+
 function Effects.OnKO(data)
 	local pos = data.pos
 	local center = data.center

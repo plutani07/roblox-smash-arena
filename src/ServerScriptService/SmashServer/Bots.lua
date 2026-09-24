@@ -101,6 +101,55 @@ function Brain:Think(dt)
 		return input
 	end
 
+	-- grabbed: mash to break out (better CPUs mash faster)
+	if c.grabbedBy then
+		if math.random() < dt * (3 + self.level * 5) then
+			input.anyPressed = true
+			input.attackPressed = true
+		end
+		return input
+	end
+
+	-- holding someone: pummel a little, then throw somewhere useful
+	if c.holding then
+		self.moveX = 0
+		input.x = 0
+		local h = c.holding
+		if h.t < 0.25 + math.random() * 0.2 then return input end
+		if not self.throwPlan then
+			local victim = f.holding
+			local facing = c.facing
+			local frontRoom = facing == 1 and (stage.Right - pos.X) or (pos.X - stage.Left)
+			local backRoom = facing == 1 and (pos.X - stage.Left) or (stage.Right - pos.X)
+			local plan
+			if backRoom < 14 then
+				plan = "b"
+			elseif frontRoom < 14 then
+				plan = "f"
+			elseif victim and victim.percent > 100 then
+				plan = math.random() < 0.6 and "b" or "u"
+			else
+				plan = ({ "f", "d", "u", "b" })[math.random(1, 4)]
+			end
+			self.throwPlan = { dir = plan, pummels = self.level >= 2 and math.random(0, 2) or 0 }
+		end
+		local plan = self.throwPlan
+		if plan.pummels > 0 then
+			if h.t >= h.nextPummel then
+				input.attackPressed = true
+				plan.pummels -= 1
+			end
+		else
+			if plan.dir == "u" then input.upPressed = true
+			elseif plan.dir == "d" then input.downPressed = true
+			elseif plan.dir == "f" then input.xPressed = c.facing
+			else input.xPressed = -c.facing end
+			self.throwPlan = nil
+		end
+		return input
+	end
+	self.throwPlan = nil
+
 	self.think -= dt
 	local offstage = pos.X < stage.Left - 0.5 or pos.X > stage.Right + 0.5 or pos.Y < stage.Top - 1.5
 	-- recovery needs quick reactions regardless of level
@@ -191,7 +240,11 @@ function Brain:Think(dt)
 				return input
 			end
 			local r = math.random()
-			if target.percent > 85 and r < self.p.smash then
+			-- shields lose to grabs, so grab shielding opponents (and sometimes just to mix it up)
+			if (target.shielding and adx < 3.6 * f.scale and math.random() < 0.3 + self.p.aggression * 0.5)
+				or (adx < 3.2 * f.scale and math.random() < 0.12) then
+				input.grabPressed = true
+			elseif target.percent > 85 and r < self.p.smash then
 				input.smashPressed = true
 				input.x = toward
 				self.hold.smashHeld = 0.1 + math.random() * 0.45
@@ -319,6 +372,10 @@ function Bots.Spawn(def, opts)
 			leaveRevival = function() Combat.EndRevival(fighter) end,
 			charge = function(key) Combat.Broadcast("Charge", { id = fighter.id, key = key }) end,
 			fx = function(kind) Combat.Broadcast("Fx", { id = fighter.id, kind = kind }) end,
+			pummel = function() Combat.Pummel(fighter) end,
+			throw = function(dir) Combat.Throw(fighter, dir) end,
+			mash = function() Combat.Mash(fighter) end,
+			crouch = function(on) Combat.SetCrouch(fighter, on) end,
 		},
 	})
 	fighter.controller = controller

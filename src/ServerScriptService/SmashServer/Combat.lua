@@ -91,6 +91,8 @@ end
 
 function Combat.Unregister(f)
 	if not f then return end
+	if f.holding then Combat.ReleaseGrab(f, "ko") end
+	if f.grabbedBy then Combat.ReleaseGrab(f.grabbedBy, "ko") end
 	Combat.Fighters[f.id] = nil
 	Combat.ByModel[f.model] = nil
 	if f.model and f.model.Parent then
@@ -113,6 +115,10 @@ end
 
 local function hurtbox(f)
 	local s = f.scale
+	if f.model:GetAttribute("Crouching") then
+		-- crouching makes you shorter, so some high attacks whiff
+		return f.root.Position + Vector3.new(0, -1.05 * s, 0), Vector2.new(3.4 * s, 4.0 * s)
+	end
 	local c = f.root.Position + Vector3.new(0, -0.35 * s, 0)
 	return c, Vector2.new(3.2 * s, 5.4 * s)
 end
@@ -236,14 +242,20 @@ function Combat.ShieldBreak(f)
 end
 
 -- The heart of it: one hitbox connecting with one fighter.
--- opts: charge, move, facing (forced direction), projectile (bool)
+-- opts: charge, move, facing (forced direction), projectile (bool), throw (bool)
 function Combat.ApplyHit(attacker, victim, hit, center, opts)
 	opts = opts or {}
 	local t = now()
 
-	-- counters
+	-- getting hit breaks grabs (yours, or the one you're stuck in)
+	if not opts.throw then
+		if victim.holding then Combat.ReleaseGrab(victim, "hit") end
+		if victim.grabbedBy and victim.grabbedBy ~= attacker then Combat.ReleaseGrab(victim.grabbedBy, "hit") end
+	end
+
+	-- counters (throws can't be countered)
 	local va = victim.action
-	if va and va.move.counter and not opts.isCounter then
+	if va and va.move.counter and not opts.isCounter and not opts.throw then
 		local c = va.move.counter
 		local vt = actionTime(va)
 		if vt >= c.t0 and vt <= c.t1 and not va.countered then
@@ -269,7 +281,7 @@ function Combat.ApplyHit(attacker, victim, hit, center, opts)
 	local facingDir = opts.facing or (attacker.action and attacker.action.facing) or 1
 
 	-- shields & parries
-	if victim.shielding then
+	if victim.shielding and not opts.throw then
 		if t - victim.shieldStart <= Config.ParryWindow then
 			local stun = 0.45
 			if not opts.projectile then
@@ -299,7 +311,7 @@ function Combat.ApplyHit(attacker, victim, hit, center, opts)
 	local kb = Combat.Knockback(victim.percent, dmg, victim.def.Stats.Weight, hit.bkb, hit.kbg)
 
 	-- super armor: take the damage, ignore the launch
-	if va and va.move.armor then
+	if va and va.move.armor and not opts.throw then
 		local ar = va.move.armor
 		local vt = actionTime(va)
 		if vt >= ar.t0 and vt <= ar.t1 and kb < ar.kb then
@@ -364,6 +376,8 @@ end
 function Combat.StartMove(f, key, charge, facing)
 	local move = f.moves[key]
 	if not move or not Combat.InPlay(f) or f.reviving then return false end
+	-- throws and pummels only come from Combat.Throw / Combat.Pummel while holding someone
+	if move.throw or move.pummel or f.holding or f.grabbedBy then return false end
 	local t = now()
 	if t < f.hitstunUntil - 0.2 then return false end
 	local a = f.action
@@ -392,6 +406,94 @@ function Combat.StartMove(f, key, charge, facing)
 	}
 	Combat.Broadcast("Move", { id = f.id, key = key, charge = f.action.charge, facing = f.action.facing })
 	return true
+end
+
+-- Grabs -----------------------------------------------------------------------------------------
+
+local THROWS = { f = "fthrow", b = "bthrow", u = "uthrow", d = "dthrow" }
+
+function Combat.StartGrab(a, v, facing)
+	local t = now()
+	a.action = nil
+	v.action = nil
+	if v.shielding then Combat.SetShield(v, false) end
+	if v.holding then Combat.ReleaseGrab(v, "hit") end
+	-- the more damage you have, the longer you're stuck
+	local hold = math.clamp(1.1 + v.percent / 110, 1.1, 3.2)
+	a.holding = v
+	a.grabFacing = facing or 1
+	a.grabUntil = t + hold
+	a.throwing = nil
+	v.grabbedBy = a
+	v.hitstunUntil = math.max(v.hitstunUntil, t + hold + 0.3)
+	a.model:SetAttribute("Holding", true)
+	v.model:SetAttribute("Grabbed", true)
+	Combat.Broadcast("Grab", { a = a.id, v = v.id, hold = hold, scale = a.scale, facing = a.grabFacing, pos = v.root.Position })
+	if a.controller then a.controller:EnterHold(v.model) end
+	if v.controller then v.controller:EnterGrabbed(a.model, a.scale) end
+end
+
+-- reason: "throw" (the throw's hit takes over), "timeout", "mash", "hit", "ko"
+function Combat.ReleaseGrab(a, reason)
+	local v = a.holding
+	if not v then return end
+	a.holding = nil
+	a.throwing = nil
+	if a.model then a.model:SetAttribute("Holding", false) end
+	v.grabbedBy = nil
+	if v.model then v.model:SetAttribute("Grabbed", false) end
+	local facing = a.grabFacing or 1
+	local vPush, aPush
+	if reason ~= "throw" then
+		-- grab release: both fighters get pushed apart
+		v.hitstunUntil = now() + 0.22
+		vPush = facing * 20
+		aPush = -facing * 8
+		a.action = nil
+	end
+	Combat.Broadcast("GrabEnd", { a = a.id, v = v.id, reason = reason, push = vPush, apush = aPush })
+	if a.controller then a.controller:ExitHold(aPush) end
+	if v.controller then v.controller:ExitGrabbed(vPush) end
+end
+
+function Combat.Throw(a, dir)
+	local key = THROWS[dir]
+	if not key or not a.holding or a.throwing then return end
+	local move = a.moves[key]
+	if not move then return end
+	a.throwing = true
+	a.action = {
+		key = key, move = move, start = now(), paused = 0, pauseUntil = 0, charge = 0,
+		facing = a.grabFacing or 1, hitVictims = {}, startPos = a.root.Position,
+	}
+	Combat.Broadcast("Move", { id = a.id, key = key, charge = 0, facing = a.action.facing })
+end
+
+function Combat.Pummel(a)
+	local v = a.holding
+	if not v or a.throwing then return end
+	local t = now()
+	if t - (a.lastPummel or 0) < 0.3 then return end
+	a.lastPummel = t
+	local p = a.moves.pummel and a.moves.pummel.pummel
+	local dmg = p and p.dmg or 1.5
+	v.percent = math.min(999, v.percent + dmg)
+	v.model:SetAttribute("Percent", v.percent)
+	Combat.Broadcast("Pummel", { a = a.id, v = v.id, dmg = dmg, pos = v.root.Position, percent = v.percent })
+end
+
+-- Every button the grabbed fighter presses shortens the hold
+function Combat.Mash(v)
+	local a = v.grabbedBy
+	if not a or a.throwing then return end
+	local t = now()
+	if t - (v.lastMash or 0) < 0.06 then return end
+	v.lastMash = t
+	a.grabUntil -= 0.07
+end
+
+function Combat.SetCrouch(f, on)
+	if f.model then f.model:SetAttribute("Crouching", on == true) end
 end
 
 function Combat.Dodge(f, kind)
@@ -468,7 +570,20 @@ local function updateAction(f, dt)
 	end
 
 	for i, hit in ipairs(move.hits or {}) do
-		if at >= hit.t[1] and at <= hit.t[2] then
+		if at >= hit.t[1] and at <= hit.t[2] and hit.grab then
+			-- grab box: catches the first fighter it touches, straight through shields
+			local center, size = hitboxWorld(f, a, hit)
+			debugBox(center, size, Color3.fromRGB(160, 80, 255))
+			for _, v in pairs(Combat.Fighters) do
+				if v ~= f and Combat.CanBeHit(v) and not v.grabbedBy and not v.holding then
+					local hc, hs = hurtbox(v)
+					if overlaps(center, size, hc, hs) then
+						Combat.StartGrab(f, v, a.facing)
+						return
+					end
+				end
+			end
+		elseif at >= hit.t[1] and at <= hit.t[2] then
 			local center, size = hitboxWorld(f, a, hit)
 			debugBox(center, size)
 			for _, v in pairs(Combat.Fighters) do
@@ -486,6 +601,16 @@ local function updateAction(f, dt)
 					end
 				end
 			end
+		end
+	end
+
+	-- throws let go at their release frame and launch the victim
+	if move.throw and not a.thrown and at >= move.throw.t then
+		a.thrown = true
+		local v = f.holding
+		Combat.ReleaseGrab(f, "throw")
+		if v and Combat.InPlay(v) then
+			Combat.ApplyHit(f, v, move.throw.hit, v.root.Position, { throw = true, facing = a.facing })
 		end
 	end
 
@@ -591,6 +716,8 @@ end
 
 function Combat.KO(f)
 	if f.koed then return end
+	if f.holding then Combat.ReleaseGrab(f, "ko") end
+	if f.grabbedBy then Combat.ReleaseGrab(f.grabbedBy, "ko") end
 	f.koed = true
 	f.action = nil
 	f.shielding = false
@@ -687,6 +814,18 @@ local function step(dt)
 
 		if f.reviving and t >= (f.reviveUntil or 0) then
 			Combat.EndRevival(f)
+		end
+
+		-- grab holds run out (faster the more the victim mashes)
+		if f.holding then
+			local v = f.holding
+			if not Combat.Fighters[v.id] or not Combat.InPlay(v) then
+				Combat.ReleaseGrab(f, "ko")
+			elseif f.throwing then
+				if not f.action then Combat.ReleaseGrab(f, "timeout") end
+			elseif t >= f.grabUntil then
+				Combat.ReleaseGrab(f, "timeout")
+			end
 		end
 
 		-- blast zones

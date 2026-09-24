@@ -14,21 +14,22 @@ Input.OnImported = nil        -- called after saved bindings are loaded (used to
 Input.MaxPerAction = 4
 
 -- Order here is the order the Controls menu lists them in
-Input.Actions = { "jump", "attack", "special", "smash", "shield", "taunt", "left", "right", "up", "down" }
+Input.Actions = { "jump", "attack", "special", "smash", "shield", "grab", "taunt", "left", "right", "up", "down" }
 Input.ActionNames = {
 	jump = "JUMP", attack = "ATTACK", special = "SPECIAL", smash = "SMASH ATTACK", shield = "SHIELD / DODGE",
-	taunt = "TAUNT", left = "MOVE LEFT", right = "MOVE RIGHT", up = "UP / AIM UP", down = "DOWN / FAST FALL",
+	grab = "GRAB", taunt = "TAUNT", left = "MOVE LEFT", right = "MOVE RIGHT", up = "UP / AIM UP", down = "DOWN / FAST FALL",
 }
 
+-- Controller defaults follow Smash Ultimate: triggers shield, bumpers grab
 Input.Defaults = {
 	keyboard = {
 		jump = { "Space" }, attack = { "J", "MouseButton1" }, special = { "K", "MouseButton2" },
-		smash = { "L" }, shield = { "Q", "LeftShift", "RightShift" }, taunt = { "T" },
+		smash = { "L" }, shield = { "Q", "LeftShift", "RightShift" }, grab = { "E" }, taunt = { "T" },
 		left = { "A", "Left" }, right = { "D", "Right" }, up = { "W", "Up" }, down = { "S", "Down" },
 	},
 	gamepad = {
 		jump = { "ButtonX", "ButtonY" }, attack = { "ButtonA" }, special = { "ButtonB" },
-		smash = {}, shield = { "ButtonR1", "ButtonL1", "ButtonR2", "ButtonL2" }, taunt = { "DPadUp" },
+		smash = {}, shield = { "ButtonR2", "ButtonL2" }, grab = { "ButtonR1", "ButtonL1" }, taunt = { "DPadUp" },
 		left = { "DPadLeft" }, right = { "DPadRight" }, up = {}, down = { "DPadDown" },
 	},
 }
@@ -194,6 +195,7 @@ function Input.Import(data)
 		local src = data[device]
 		if type(src) == "table" then
 			local seen = {}
+			-- 1) what the player saved wins
 			for _, action in ipairs(Input.Actions) do
 				local list = src[action]
 				if type(list) == "table" then
@@ -205,8 +207,19 @@ function Input.Import(data)
 						end
 					end
 					Input.Bindings[device][action] = keys
-				else
-					for _, k in ipairs(Input.Bindings[device][action]) do seen[k] = true end
+				end
+			end
+			-- 2) actions added after they saved (e.g. Grab) get whichever defaults are still free
+			for _, action in ipairs(Input.Actions) do
+				if type(src[action]) ~= "table" then
+					local keys = {}
+					for _, k in ipairs(Input.Defaults[device][action] or {}) do
+						if not seen[k] then
+							seen[k] = true
+							table.insert(keys, k)
+						end
+					end
+					Input.Bindings[device][action] = keys
 				end
 			end
 		end
@@ -353,6 +366,7 @@ function Input.Poll()
 	input.shieldHeld = held.shield == true
 	input.shieldPressed = pressed.shield == true
 	input.tauntPressed = pressed.taunt == true
+	input.grabPressed = pressed.grab == true
 	input.anyPressed = next(pressed) ~= nil
 
 	prev.up, prev.down, prev.xs, prev.stickUp = up, down, xs, stickUp
@@ -411,6 +425,7 @@ function Input.BuildTouch(gui)
 		{ "SPC", "special", UDim2.new(1, -200, 1, -190), Color3.fromRGB(52, 120, 235) },
 		{ "SMASH", "smash", UDim2.new(1, -110, 1, -230), Color3.fromRGB(245, 160, 40) },
 		{ "SHLD", "shield", UDim2.new(1, -290, 1, -140), Color3.fromRGB(150, 90, 230) },
+		{ "GRAB", "grab", UDim2.new(1, -290, 1, -240), Color3.fromRGB(230, 90, 170) },
 	}
 	for _, b in ipairs(buttons) do
 		local btn = Instance.new("TextButton")
