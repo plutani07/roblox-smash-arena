@@ -1,0 +1,23 @@
+{
+  "name": "SmashArena",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Smash": {
+        "$path": "src/ReplicatedStorage/Smash"
+      }
+    },
+    "ServerScriptService": {
+      "SmashServer": {
+        "$path": "src/ServerScriptService/SmashServer"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "SmashClient": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/SmashClient"
+        }
+      }
+    }
+  }
+}
