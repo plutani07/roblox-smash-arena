@@ -15,6 +15,7 @@ local Fighters = require(Smash.Fighters)
 local Combat = require(script.Combat)
 local Bots = require(script.Bots)
 local Looks = require(script.Looks)
+local ControlsStore = require(script.ControlsStore)
 
 workspace.Gravity = Config.Gravity
 Players.CharacterAutoLoads = false
@@ -103,6 +104,8 @@ local function spawnPlayer(player, pos, opts)
 	local facing = pos.X > stage.CenterX and -1 or 1
 	char:PivotTo(CFrame.lookAt(pos, pos + Vector3.new(facing, 0, 0)))
 	Looks.Apply(char, def)
+	-- a newer spawn (e.g. a match starting) replaced this character while we were dressing it
+	if player.Character ~= char or not char.Parent then return nil end
 	for _, d in ipairs(char:GetDescendants()) do
 		if d:IsA("BasePart") then d.CollisionGroup = "SmashFighters" end
 	end
@@ -346,6 +349,11 @@ end
 
 -- Client requests ---------------------------------------------------------------------------
 local lastFx = {}
+local lastControlsLoad = {}
+Players.PlayerRemoving:Connect(function(player)
+	lastFx[player] = nil
+	lastControlsLoad[player] = nil
+end)
 
 actionRemote.OnServerEvent:Connect(function(player, kind, a, b, c)
 	local f = Combat.ForPlayer(player)
@@ -390,6 +398,17 @@ actionRemote.OnServerEvent:Connect(function(player, kind, a, b, c)
 		if state:GetAttribute("Phase") == "Lobby" then
 			task.spawn(runMatch)
 		end
+	elseif kind == "LoadControls" then
+		if lastControlsLoad[player] then return end
+		lastControlsLoad[player] = true
+		task.spawn(function()
+			local data = ControlsStore.Load(player)
+			if data and player.Parent then
+				eventRemote:FireClient(player, "Controls", data)
+			end
+		end)
+	elseif kind == "SaveControls" then
+		ControlsStore.Save(player, a)
 	end
 end)
 

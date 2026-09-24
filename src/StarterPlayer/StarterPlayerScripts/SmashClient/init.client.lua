@@ -6,6 +6,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
+local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
@@ -26,6 +27,7 @@ local Animator = require(script.Animator)
 local Effects = require(script.Effects)
 local Hud = require(script.Hud)
 local Menu = require(script.Menu)
+local ControlsMenu = require(script.ControlsMenu)
 
 -- Roblox defaults we don't want in a platform fighter
 task.spawn(function()
@@ -53,14 +55,44 @@ Effects.CameraRig = CameraRig
 Effects.ModelFor = Animator.ModelFor
 Effects.Init()
 Hud.Init(playerGui, state)
+-- the View/Select button opens our menus instead of Roblox's UI-navigation mode
+pcall(function() GuiService.AutoSelectGuiEnabled = false end)
+
+local menuSound = function() Effects.Sound("tick", 0.5, 1.2) end
 Menu.Input = Input
-Menu.Sound = function() Effects.Sound("tick", 0.5, 1.2) end
+Menu.Controls = ControlsMenu
+Menu.Sound = menuSound
 Menu.OnSelect = function(key) Action:FireServer("Select", key) end
 Menu.OnSetting = function(name, value) Action:FireServer("Setting", name, value) end
 Menu.OnStart = function() Action:FireServer("StartMatch") end
-Menu.OnTapJump = function(on) Input.TapJump = on end
+Menu.OnOpenControls = function() ControlsMenu.Open() end
 Menu.Init(playerGui, state)
 Input.BuildTouch(Menu.Gui)
+
+ControlsMenu.Input = Input
+ControlsMenu.Sound = menuSound
+ControlsMenu.OnOpenFighters = function() Menu.Open() end
+ControlsMenu.CanOpenFighters = function() return state:GetAttribute("Phase") == "Lobby" end
+ControlsMenu.OnClosed = function() Menu.RefreshHelp() end
+ControlsMenu.Init(playerGui)
+
+-- remapped controls are saved on the server (a couple of seconds after the last change)
+local saveToken = 0
+Input.OnChanged = function()
+	Menu.RefreshHelp()
+	saveToken += 1
+	local token = saveToken
+	task.delay(1.5, function()
+		if token == saveToken then
+			Action:FireServer("SaveControls", Input.Export())
+		end
+	end)
+end
+Input.OnImported = function()
+	Menu.RefreshHelp()
+	ControlsMenu.Refresh()
+end
+Action:FireServer("LoadControls")
 
 -- Our fighter --------------------------------------------------------------------------------
 local controller = nil
@@ -117,13 +149,21 @@ if player.Character then
 	task.spawn(setupCharacter, player.Character)
 end
 
+local menuWasOpen = false
 RunService.Stepped:Connect(function(_, dt)
+	-- while a menu is open your fighter stands still; the press that closes it is thrown away
+	local menuOpen = Menu.IsOpen() or ControlsMenu.IsOpen()
+	local input = Input.Poll()
+	if menuOpen then
+		input = Controller.BlankInput()
+	elseif menuWasOpen then
+		Input.Flush()
+		input = Controller.BlankInput()
+	end
+	menuWasOpen = menuOpen
 	if controller and controller.model.Parent then
-		local input = Menu.IsOpen() and Controller.BlankInput() or Input.Poll()
 		local ok, err = pcall(controller.Step, controller, dt, input)
 		if not ok then warn("[Smash] controller error:", err) end
-	else
-		Input.Poll()
 	end
 end)
 
@@ -191,6 +231,8 @@ Event.OnClientEvent:Connect(function(kind, data)
 		if controller and data.id == myId then controller:Reset() end
 	elseif kind == "MoveRejected" then
 		if controller then controller:CancelAction() end
+	elseif kind == "Controls" then
+		Input.Import(data)
 	elseif kind == "Announce" then
 		Hud.Announce(data.text, data.color, data.dur, data.sub)
 		if data.text == "GO!" then

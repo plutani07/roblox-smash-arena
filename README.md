@@ -45,21 +45,39 @@ Each fighter's look is built entirely from parts: body colors, proportions, hair
 
 ## Controls
 
+These are the defaults. Every one of them can be changed in the game (see **Remapping** below).
+
 | Action | Keyboard | Gamepad |
 |---|---|---|
-| Move | A / D | Left stick |
+| Move | A / D | Left stick (+ D-pad) |
 | Jump (tap for short hop) | Space | X / Y |
 | Aim up / down | W / S | Left stick |
 | Fast fall (in air) / drop through platform | S | Stick down |
 | Attack (neutral, tilts, aerials by direction) | J or left click | A |
-| Smash attack (hold to charge) | L | Right stick |
+| Smash attack (hold to charge) | L | Right stick flick |
 | Special (+ direction) | K or right click | B |
 | Shield / roll (+A/D) / spot dodge (+S) / air dodge | Q or Shift | Bumpers / triggers |
 | Taunt | T | D-pad up |
-| Fighter select | M | Select |
-| Hide controls | H | |
+| Fighter select (in the lobby) | M | View / Select |
+| Controls menu | C | View / Select during a match, or Y on the fighter select screen |
+| Hide controls card | H | |
 
-On mobile, an on-screen stick and buttons appear. You can turn on **Tap Jump** (W jumps) in the lobby panel.
+The fighter select screen works with a controller. Use the D-pad or stick to pick a fighter, **A** to lock in, **X** to lock in and start the match, **Y** to open Controls, and **B** to go back.
+
+On mobile, an on-screen stick and buttons appear.
+
+### Remapping
+
+Open the **Controls** menu (the **CONTROLS** button in the lobby panel, **C** on the keyboard, or the controller's **View** button) to change any control.
+
+- There are separate **Controller** and **Keyboard & Mouse** tabs. Switch between them with **LB / RB** or by clicking.
+- Pick a button and press **A** (or click it), then press the new button. Each action can have up to 4 buttons.
+- A button can only do one thing. If you give it to a new action, it's taken off the old one, and the menu tells you.
+- **X** (or right-click) removes a button. **Y** (press twice) resets that tab to the defaults.
+- It also has toggles for **Right stick = Smash** and **Tap Jump** (Up also jumps).
+- The controls card on the left of the screen always shows your current buttons, for whichever device you're using.
+
+Changes apply instantly. They're saved to your Roblox account through a DataStore, so they come back next time you play. In Studio, saving only works if the place is published and **Game Settings → Security → Enable Studio Access to API Services** is on. Without that, your remaps still work until you stop playing.
 
 ## Project layout
 

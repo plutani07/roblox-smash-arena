@@ -1,4 +1,5 @@
 -- Character select screen, lobby panel (CPUs / level / stocks / start) and the controls card.
+-- Everything here works with a controller too: View/Select opens menus, D-Pad or stick moves.
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -12,13 +13,17 @@ local Menu = {}
 Menu.OnSelect = nil
 Menu.OnSetting = nil
 Menu.OnStart = nil
-Menu.OnTapJump = nil
+Menu.OnOpenControls = nil
 Menu.Input = nil
+Menu.Controls = nil -- the ControlsMenu module
 
-local gui, selectFrame, lobbyPanel, helpFrame
+local gui, selectFrame, lobbyPanel, helpFrame, helpText
 local detail = {}
 local chosenKey = Fighters.List[1].Key
+local chosenIndex = 1
 local state
+local stickHeld, stickNext = nil, 0
+local openedAt = 0
 
 local DARK = Color3.fromRGB(16, 16, 24)
 
@@ -70,6 +75,7 @@ end
 
 local function showDetail(def)
 	chosenKey = def.Key
+	chosenIndex = def.Index or table.find(Fighters.List, def) or 1
 	detail.name.Text = def.Name
 	detail.name.TextColor3 = def.Accent
 	detail.title.Text = def.Title
@@ -87,9 +93,36 @@ local function showDetail(def)
 	)
 	detail.lock.BackgroundColor3 = def.Color
 	for key, card in pairs(detail.cards) do
-		card.stroke.Color = key == def.Key and def.Accent or Color3.fromRGB(60, 60, 80)
-		card.stroke.Thickness = key == def.Key and 4 or 2
+		local on = key == def.Key
+		card.stroke.Color = on and def.Accent or Color3.fromRGB(60, 60, 80)
+		card.stroke.Thickness = on and 4 or 2
+		TweenService:Create(card.frame, TweenInfo.new(0.12), { Size = on and UDim2.fromOffset(180, 250) or UDim2.fromOffset(170, 240) }):Play()
 	end
+end
+
+local function cycleFighter(step)
+	local n = #Fighters.List
+	local i = ((chosenIndex - 1 + step) % n) + 1
+	showDetail(Fighters.List[i])
+	if Menu.Sound then Menu.Sound() end
+end
+
+local function lockIn()
+	if Menu.OnSelect then Menu.OnSelect(chosenKey) end
+	Menu.Close()
+end
+
+local function lockInAndFight()
+	if Menu.OnSelect then Menu.OnSelect(chosenKey) end
+	Menu.Close()
+	-- give the server a moment to spawn the new fighter before the countdown starts
+	task.delay(0.3, function()
+		if Menu.OnStart then Menu.OnStart() end
+	end)
+end
+
+local function openControls()
+	if Menu.OnOpenControls then Menu.OnOpenControls() end
 end
 
 local function buildViewport(parent, def)
@@ -150,6 +183,7 @@ local function buildSelect()
 	local layout = Instance.new("UIListLayout", row)
 	layout.FillDirection = Enum.FillDirection.Horizontal
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.VerticalAlignment = Enum.VerticalAlignment.Center
 	layout.Padding = UDim.new(0, 14)
 
 	detail.cards = {}
@@ -174,12 +208,6 @@ local function buildSelect()
 		card.MouseButton1Click:Connect(function()
 			if Menu.Sound then Menu.Sound() end
 			showDetail(def)
-		end)
-		card.MouseEnter:Connect(function()
-			TweenService:Create(card, TweenInfo.new(0.12), { Size = UDim2.fromOffset(180, 250) }):Play()
-		end)
-		card.MouseLeave:Connect(function()
-			TweenService:Create(card, TweenInfo.new(0.12), { Size = UDim2.fromOffset(170, 240) }):Play()
 		end)
 		detail.cards[def.Key] = { frame = card, stroke = s }
 	end
@@ -223,16 +251,25 @@ local function buildSelect()
 		Font = Enum.Font.Gotham, TextSize = 15, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
 		LineHeight = 1.35,
 	})
+	-- bottom row: CONTROLS (Y) · BACK (B) · LOCK IN (A) · FIGHT! (X)
+	button(panel, { Size = UDim2.fromOffset(110, 46), Position = UDim2.fromOffset(360, 188), Text = "CONTROLS", TextSize = 14 }, openControls)
+	button(panel, { Size = UDim2.fromOffset(90, 46), Position = UDim2.fromOffset(482, 188), Text = "BACK" }, function()
+		Menu.Close()
+	end)
 	detail.lock = button(panel, {
-		Size = UDim2.fromOffset(240, 54), Position = UDim2.new(1, -264, 1, -70), Text = "LOCK IN!",
-		Font = Enum.Font.LuckiestGuy, TextSize = 32,
-	}, function()
-		if Menu.OnSelect then Menu.OnSelect(chosenKey) end
-		Menu.Close()
-	end)
-	button(panel, { Size = UDim2.fromOffset(110, 40), Position = UDim2.new(1, -390, 1, -63), Text = "BACK" }, function()
-		Menu.Close()
-	end)
+		Size = UDim2.fromOffset(140, 46), Position = UDim2.fromOffset(584, 188), Text = "LOCK IN",
+		Font = Enum.Font.LuckiestGuy, TextSize = 28,
+	}, lockIn)
+	button(panel, {
+		Size = UDim2.fromOffset(140, 46), Position = UDim2.fromOffset(736, 188), Text = "FIGHT!",
+		Font = Enum.Font.LuckiestGuy, TextSize = 28, BackgroundColor3 = Color3.fromRGB(235, 64, 52),
+	}, lockInAndFight)
+
+	detail.hint = text(selectFrame, {
+		Size = UDim2.new(1, 0, 0, 24), Position = UDim2.fromOffset(0, 630), Font = Enum.Font.GothamBold, TextSize = 15,
+		TextColor3 = Color3.fromRGB(190, 190, 210), TextStrokeTransparency = 0.5,
+		Text = "Controller:  D-Pad / stick  pick     A  lock in     X  lock in & fight     Y  controls     B  back",
+	})
 
 	showDetail(Fighters.List[1])
 end
@@ -240,13 +277,13 @@ end
 function Menu.Open()
 	if not selectFrame then return end
 	selectFrame.Visible = true
-	if Menu.Input then Menu.Input.Blocked = true end
+	openedAt = os.clock()
+	showDetail(Fighters.List[chosenIndex])
 end
 
 function Menu.Close()
 	if not selectFrame then return end
 	selectFrame.Visible = false
-	if Menu.Input then Menu.Input.Blocked = false end
 end
 
 -- Lobby panel ---------------------------------------------------------------------------------
@@ -293,12 +330,7 @@ local function buildLobby()
 	stepper(lobbyPanel, 88, "CPUs", "CPUs", 0, Config.MaxCPUs)
 	stepper(lobbyPanel, 122, "CPU LEVEL", "CPULevel", 1, 3)
 	stepper(lobbyPanel, 156, "STOCKS", "Stocks", 1, Config.MaxStocks)
-	local tap = button(lobbyPanel, { Size = UDim2.new(1, -28, 0, 26), Position = UDim2.fromOffset(14, 192), Text = "TAP JUMP (W): OFF", TextSize = 13 }, function() end)
-	tap.MouseButton1Click:Connect(function()
-		local on = not (Menu.Input and Menu.Input.TapJump)
-		if Menu.OnTapJump then Menu.OnTapJump(on) end
-		tap.Text = "TAP JUMP (W): " .. (on and "ON" or "OFF")
-	end)
+	button(lobbyPanel, { Size = UDim2.new(1, -28, 0, 26), Position = UDim2.fromOffset(14, 192), Text = "CONTROLS  [C]", TextSize = 13 }, openControls)
 	button(lobbyPanel, { Size = UDim2.new(1, -28, 0, 42), Position = UDim2.fromOffset(14, 224), Text = "START MATCH!", Font = Enum.Font.LuckiestGuy, TextSize = 26, BackgroundColor3 = Color3.fromRGB(235, 64, 52) }, function()
 		if Menu.OnStart then Menu.OnStart() end
 	end)
@@ -311,34 +343,119 @@ local function buildLobby()
 	refresh()
 end
 
+-- Controls card (always shows the player's current bindings) -----------------------------------
+
+local function usingGamepad()
+	local last = UserInputService:GetLastInputType()
+	return string.sub(last.Name, 1, 7) == "Gamepad"
+end
+
+function Menu.RefreshHelp()
+	if not helpText or not Menu.Input then return end
+	local Input = Menu.Input
+	local lines
+	if usingGamepad() then
+		local d = function(a) return Input.Describe("gamepad", a) end
+		local smash = d("smash")
+		if Input.RightStickSmash then
+			smash = smash == "none" and "Right stick" or ("Right stick / " .. smash)
+		end
+		lines = {
+			"<b>CONTROLS</b>  (View button = menus)",
+			"<b>MOVE</b>  Left stick     <b>JUMP</b>  " .. d("jump"),
+			"<b>ATTACK</b>  " .. d("attack") .. "  (+ direction = tilts & aerials)",
+			"<b>SMASH</b>  " .. smash .. "  (hold to charge)",
+			"<b>SPECIAL</b>  " .. d("special") .. "  (+ up / down / side)",
+			"<b>SHIELD</b>  " .. d("shield") .. "  (+ side roll, + down dodge, in air = air dodge)",
+			"<b>TAUNT</b>  " .. d("taunt"),
+			"Stick down in air = fast fall, on a platform = drop",
+			"Knocked past the edges = <b>KO!</b>  Higher % = you fly farther.",
+		}
+	else
+		local d = function(a) return Input.Describe("keyboard", a) end
+		lines = {
+			"<b>CONTROLS</b>  (H hide · C change)",
+			"<b>MOVE</b>  " .. d("left") .. " · " .. d("right") .. "     <b>JUMP</b>  " .. d("jump"),
+			"<b>AIM</b>  " .. d("up") .. " · " .. d("down") .. "  (down in air = fast fall, on a platform = drop)",
+			"<b>ATTACK</b>  " .. d("attack") .. "  (+ direction = tilts & aerials)",
+			"<b>SMASH</b>  " .. d("smash") .. "  (hold to charge)",
+			"<b>SPECIAL</b>  " .. d("special") .. "  (+ up / down / side)",
+			"<b>SHIELD</b>  " .. d("shield") .. "  (+ side roll, + down dodge, in air = air dodge)",
+			"<b>TAUNT</b>  " .. d("taunt"),
+			"Knocked past the edges = <b>KO!</b>  Higher % = you fly farther.",
+		}
+	end
+	helpText.Text = table.concat(lines, "\n")
+end
+
 local function buildHelp()
 	helpFrame = Instance.new("Frame")
 	helpFrame.Name = "Controls"
-	helpFrame.Size = UDim2.fromOffset(300, 228)
+	helpFrame.Size = UDim2.fromOffset(340, 0)
+	helpFrame.AutomaticSize = Enum.AutomaticSize.Y
 	helpFrame.AnchorPoint = Vector2.new(0, 0.5)
 	helpFrame.Position = UDim2.new(0, 16, 0.5, 0) -- left edge, clear of the chat window
 	helpFrame.BackgroundColor3 = DARK
 	helpFrame.BackgroundTransparency = 0.2
 	helpFrame.Parent = gui
 	corner(helpFrame, 12)
-	local lines = {
-		"<b>CONTROLS</b>  (H to hide)",
-		"<b>A / D</b>  move     <b>SPACE</b>  jump (x2 in air)",
-		"<b>W / S</b>  aim up / down,  <b>S</b> in air = fast fall",
-		"<b>S</b> on a platform = drop through",
-		"<b>J</b> / Click  attack  (+ direction = tilts & aerials)",
-		"<b>L</b>  smash attack (hold to charge)",
-		"<b>K</b> / Right-click  special (+ W, S, A/D)",
-		"<b>Q</b> / Shift  shield,  + A/D roll,  + S dodge",
-		"<b>Q</b> in air  air dodge    <b>T</b>  taunt",
-		"Get knocked past the edges = <b>KO!</b>",
-		"Higher % = you fly farther. Grab ledges to recover.",
-	}
-	text(helpFrame, {
-		Size = UDim2.new(1, -20, 1, -12), Position = UDim2.fromOffset(10, 6), RichText = true,
-		Text = table.concat(lines, "\n"), Font = Enum.Font.Gotham, TextSize = 13, LineHeight = 1.25,
+	local pad = Instance.new("UIPadding", helpFrame)
+	pad.PaddingTop = UDim.new(0, 8)
+	pad.PaddingBottom = UDim.new(0, 8)
+	pad.PaddingLeft = UDim.new(0, 10)
+	pad.PaddingRight = UDim.new(0, 10)
+	helpText = text(helpFrame, {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, RichText = true,
+		Text = "", Font = Enum.Font.Gotham, TextSize = 13, LineHeight = 1.25,
 		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, TextWrapped = true,
 	})
+	Menu.RefreshHelp()
+	UserInputService.LastInputTypeChanged:Connect(function()
+		Menu.RefreshHelp()
+	end)
+end
+
+-- Input -----------------------------------------------------------------------------------------
+
+local function controlsBusy()
+	local c = Menu.Controls
+	return c and (c.IsOpen() or c.JustClosed())
+end
+
+local function onInput(io, gameProcessed)
+	if controlsBusy() then return end
+	local key = io.KeyCode
+	local isPad = string.sub(io.UserInputType.Name, 1, 7) == "Gamepad"
+	if gameProcessed and not isPad then return end
+	local lobby = state:GetAttribute("Phase") == "Lobby"
+
+	if Menu.IsOpen() then
+		if os.clock() - openedAt < 0.15 then return end
+		if key == Enum.KeyCode.ButtonA or key == Enum.KeyCode.Return then
+			lockIn()
+		elseif key == Enum.KeyCode.ButtonX then
+			lockInAndFight()
+		elseif key == Enum.KeyCode.ButtonY or key == Enum.KeyCode.C then
+			openControls()
+		elseif key == Enum.KeyCode.ButtonB or key == Enum.KeyCode.ButtonSelect or key == Enum.KeyCode.M then
+			Menu.Close()
+		elseif key == Enum.KeyCode.DPadLeft or key == Enum.KeyCode.Left then
+			cycleFighter(-1)
+		elseif key == Enum.KeyCode.DPadRight or key == Enum.KeyCode.Right then
+			cycleFighter(1)
+		end
+		return
+	end
+
+	if key == Enum.KeyCode.ButtonSelect then
+		if lobby then Menu.Open() else openControls() end
+	elseif key == Enum.KeyCode.M then
+		if lobby then Menu.Open() end
+	elseif key == Enum.KeyCode.C then
+		openControls()
+	elseif key == Enum.KeyCode.H then
+		helpFrame.Visible = not helpFrame.Visible
+	end
 end
 
 function Menu.Init(playerGui, stateObj)
@@ -354,19 +471,24 @@ function Menu.Init(playerGui, stateObj)
 	buildHelp()
 	Menu.Gui = gui
 
-	UserInputService.InputBegan:Connect(function(io, gameProcessed)
-		if gameProcessed then return end
-		if io.KeyCode == Enum.KeyCode.M or io.KeyCode == Enum.KeyCode.ButtonSelect then
-			if Menu.IsOpen() then
-				Menu.Close()
-			elseif state:GetAttribute("Phase") == "Lobby" then
-				Menu.Open()
-			end
-		elseif io.KeyCode == Enum.KeyCode.H then
-			helpFrame.Visible = not helpFrame.Visible
-		elseif io.KeyCode == Enum.KeyCode.Return and Menu.IsOpen() then
-			if Menu.OnSelect then Menu.OnSelect(chosenKey) end
-			Menu.Close()
+	UserInputService.InputBegan:Connect(onInput)
+
+	-- left stick browses fighters on the select screen
+	RunService.RenderStepped:Connect(function()
+		if not Menu.IsOpen() or controlsBusy() or not Menu.Input then
+			stickHeld = nil
+			return
+		end
+		local x = Menu.Input.Stick().X
+		local dir = x > 0.6 and 1 or (x < -0.6 and -1 or nil)
+		local now = os.clock()
+		if dir ~= stickHeld then
+			stickHeld = dir
+			stickNext = now + 0.35
+			if dir then cycleFighter(dir) end
+		elseif dir and now >= stickNext then
+			stickNext = now + 0.15
+			cycleFighter(dir)
 		end
 	end)
 end
